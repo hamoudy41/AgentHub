@@ -1,1 +1,3 @@
-from .api import app  # re-export for `uvicorn app.main:app` noqa: F401
+from .api import app
+
+__all__ = ["app"]
