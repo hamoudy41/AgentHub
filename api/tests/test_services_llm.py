@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services_llm import LLMClient, LLMError, LLMNotConfiguredError
+from app.services_llm import LLMClient, LLMNotConfiguredError
 
 
 def _mock_response(status_code=200, json_body=None):

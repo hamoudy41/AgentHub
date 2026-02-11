@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react'
+import { TABS, type TabId } from './tabConfig'
 
-export type TabId = 'health' | 'documents' | 'classify' | 'notary' | 'ask'
-
-export const TABS: TabId[] = ['health', 'documents', 'classify', 'notary', 'ask']
+export type { TabId }
 
 interface LayoutProps {
   tab: TabId

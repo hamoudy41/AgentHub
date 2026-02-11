@@ -14,7 +14,7 @@ describe('api', () => {
   beforeEach(() => {
     vi.stubGlobal(
       'fetch',
-      vi.fn((_url: string, _init?: RequestInit) =>
+      vi.fn(() =>
         Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }))
       )
     )
