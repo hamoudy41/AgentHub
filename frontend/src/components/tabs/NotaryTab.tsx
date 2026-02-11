@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { notarySummarize } from '../../api'
 import type { NotarySummarizeResponse } from '../../api'
+import { Alert } from '../Alert'
 import { NotaryResult } from '../ResultPreview'
 
 export function NotaryTab() {
@@ -9,10 +10,12 @@ export function NotaryTab() {
   const [lang, setLang] = useState<'nl' | 'en'>('nl')
   const [result, setResult] = useState<NotarySummarizeResponse | null>(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const handleSummarize = async () => {
     setLoading(true)
     setResult(null)
+    setError(null)
     try {
       const opts: { documentId?: string; language?: 'nl' | 'en' } = {}
       if (docId.trim()) opts.documentId = docId.trim()
@@ -20,18 +23,7 @@ export function NotaryTab() {
       const r = await notarySummarize(text, opts)
       setResult(r)
     } catch (e) {
-      setResult({
-        document_id: null,
-        summary: {
-          title: 'Error',
-          key_points: [],
-          parties_involved: [],
-          risks_or_warnings: [],
-          raw_summary: String(e),
-        },
-        source: 'fallback',
-        metadata: { error: String(e) },
-      })
+      setError(String(e))
     } finally {
       setLoading(false)
     }
@@ -76,7 +68,12 @@ export function NotaryTab() {
           {loading ? 'Summarizing…' : 'Summarize'}
         </button>
       </div>
-      {result && <NotaryResult data={result} />}
+      {error && (
+        <Alert variant="error" onDismiss={() => setError(null)} className="mt-4">
+          {error}
+        </Alert>
+      )}
+      {result && !error && <NotaryResult data={result} />}
     </section>
   )
 }

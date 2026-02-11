@@ -51,6 +51,19 @@ export interface AskResponse {
   metadata?: Record<string, unknown>
 }
 
+async function parseError(r: Response): Promise<string> {
+  const text = await r.text()
+  try {
+    const json = JSON.parse(text) as { detail?: string | { msg?: string }[] }
+    const d = json.detail
+    if (typeof d === 'string') return d
+    if (Array.isArray(d) && d[0]?.msg) return d[0].msg
+  } catch {
+    /* ignore parse errors */
+  }
+  return text || `Request failed (${r.status})`
+}
+
 function headers(apiKey?: string, tenantId?: string): HeadersInit {
   const h: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -68,7 +81,7 @@ export async function getHealth(
   const r = await fetch(`${API_BASE}/health`, {
     headers: headers(apiKey, tenantId),
   })
-  if (!r.ok) throw new Error(await r.text())
+  if (!r.ok) throw new Error(await parseError(r))
   return r.json()
 }
 
@@ -82,7 +95,28 @@ export async function createDocument(
     headers: headers(apiKey, tenantId),
     body: JSON.stringify(payload),
   })
-  if (!r.ok) throw new Error(await r.text())
+  if (!r.ok) throw new Error(await parseError(r))
+  return r.json()
+}
+
+export async function uploadDocument(
+  file: File,
+  options: { documentId?: string; title?: string } = {},
+  apiKey?: string,
+  tenantId?: string
+): Promise<DocumentRead> {
+  const form = new FormData()
+  form.append('file', file)
+  if (options.documentId) form.append('document_id', options.documentId)
+  if (options.title) form.append('title', options.title)
+  const h = headers(apiKey, tenantId) as Record<string, string>
+  delete h['Content-Type']
+  const r = await fetch(`${API_BASE}/documents/upload`, {
+    method: 'POST',
+    headers: h,
+    body: form,
+  })
+  if (!r.ok) throw new Error(await parseError(r))
   return r.json()
 }
 
@@ -94,7 +128,7 @@ export async function getDocument(
   const r = await fetch(`${API_BASE}/documents/${id}`, {
     headers: headers(apiKey, tenantId),
   })
-  if (!r.ok) throw new Error(await r.text())
+  if (!r.ok) throw new Error(await parseError(r))
   return r.json()
 }
 
@@ -109,7 +143,7 @@ export async function classify(
     headers: headers(apiKey, tenantId),
     body: JSON.stringify({ text, candidate_labels: candidateLabels }),
   })
-  if (!r.ok) throw new Error(await r.text())
+  if (!r.ok) throw new Error(await parseError(r))
   return r.json()
 }
 
@@ -127,7 +161,7 @@ export async function notarySummarize(
     headers: headers(apiKey, tenantId),
     body: JSON.stringify(body),
   })
-  if (!r.ok) throw new Error(await r.text())
+  if (!r.ok) throw new Error(await parseError(r))
   return r.json()
 }
 
@@ -142,6 +176,6 @@ export async function ask(
     headers: headers(apiKey, tenantId),
     body: JSON.stringify({ question, context }),
   })
-  if (!r.ok) throw new Error(await r.text())
+  if (!r.ok) throw new Error(await parseError(r))
   return r.json()
 }

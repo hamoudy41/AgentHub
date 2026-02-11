@@ -71,6 +71,199 @@ async def test_documents_get_404_missing(client, tenant_headers):
 
 
 @pytest.mark.asyncio
+async def test_documents_create_duplicate_returns_409(client, tenant_headers):
+    await client.post(
+        "/api/v1/documents",
+        headers=tenant_headers,
+        json={"id": "dup", "title": "First", "text": "Content"},
+    )
+    r = await client.post(
+        "/api/v1/documents",
+        headers=tenant_headers,
+        json={"id": "dup", "title": "Second", "text": "Other"},
+    )
+    assert r.status_code == 409
+    assert "already exists" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_documents_upload(client, tenant_headers):
+    files = {"file": ("doc.txt", b"Hello world", "text/plain")}
+    data = {}
+    r = await client.post(
+        "/api/v1/documents/upload",
+        headers=tenant_headers,
+        files=files,
+        data=data,
+    )
+    assert r.status_code == 201
+    out = r.json()
+    assert out["id"] == "doc"
+    assert out["title"] == "doc.txt"
+    assert out["text"] == "Hello world"
+    assert "created_at" in out
+
+
+@pytest.mark.asyncio
+async def test_documents_upload_formats(client, tenant_headers):
+    """Upload succeeds for .txt, .md, .json, .csv, .xml, .html formats."""
+    formats = [
+        ("readme.md", b"# Title\nMarkdown content", "text/markdown"),
+        ("data.json", b'{"key": "value"}', "application/json"),
+        ("sheet.csv", b"a,b,c\n1,2,3", "text/csv"),
+        ("page.xml", b"<root><item>text</item></root>", "application/xml"),
+        ("index.html", b"<html><body>Hello</body></html>", "text/html"),
+    ]
+    for filename, content, mime in formats:
+        stem = filename.rsplit(".", 1)[0]
+        files = {"file": (filename, content, mime)}
+        r = await client.post(
+            "/api/v1/documents/upload",
+            headers=tenant_headers,
+            files=files,
+        )
+        assert r.status_code == 201, f"Failed for {filename}"
+        out = r.json()
+        assert out["id"] == stem
+        assert out["title"] == filename
+        assert out["text"] == content.decode("utf-8")
+        assert "created_at" in out
+
+
+@pytest.mark.asyncio
+async def test_documents_upload_with_custom_id_and_title(client, tenant_headers):
+    files = {"file": ("any.txt", b"Content", "text/plain")}
+    data = {"document_id": "custom-id", "title": "Custom Title"}
+    r = await client.post(
+        "/api/v1/documents/upload",
+        headers=tenant_headers,
+        files=files,
+        data=data,
+    )
+    assert r.status_code == 201
+    out = r.json()
+    assert out["id"] == "custom-id"
+    assert out["title"] == "Custom Title"
+    assert out["text"] == "Content"
+
+
+@pytest.mark.asyncio
+async def test_documents_upload_file_too_large_returns_413(client, tenant_headers):
+    # 5 MB + 1 byte
+    oversized = b"x" * (5 * 1024 * 1024 + 1)
+    files = {"file": ("big.txt", oversized, "text/plain")}
+    r = await client.post(
+        "/api/v1/documents/upload",
+        headers=tenant_headers,
+        files=files,
+    )
+    assert r.status_code == 413
+    assert "too large" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_documents_upload_invalid_encoding_returns_400(client, tenant_headers):
+    # Latin-1 / binary that is not valid UTF-8
+    invalid_utf8 = b"\xff\xfe\x00\x01"
+    files = {"file": ("bad.txt", invalid_utf8, "text/plain")}
+    r = await client.post(
+        "/api/v1/documents/upload",
+        headers=tenant_headers,
+        files=files,
+    )
+    assert r.status_code == 400
+    assert "utf-8" in r.json()["detail"].lower() or "decode" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_documents_upload_filename_too_long_returns_400(client, tenant_headers):
+    """Filename stem exceeding 64 chars yields 400, not 500."""
+    long_stem = "a" * 65
+    files = {"file": (f"{long_stem}.txt", b"Content", "text/plain")}
+    r = await client.post(
+        "/api/v1/documents/upload",
+        headers=tenant_headers,
+        files=files,
+    )
+    assert r.status_code == 400
+    assert "64" in r.json()["detail"]
+    assert "document_id" in r.json()["detail"].lower() or "filename" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_documents_upload_explicit_document_id_too_long_returns_400(client, tenant_headers):
+    """Explicit document_id exceeding 64 chars yields 400."""
+    files = {"file": ("short.txt", b"Content", "text/plain")}
+    data = {"document_id": "x" * 65}
+    r = await client.post(
+        "/api/v1/documents/upload",
+        headers=tenant_headers,
+        files=files,
+        data=data,
+    )
+    assert r.status_code == 400
+    assert "64" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_documents_upload_missing_file_returns_422(client, tenant_headers):
+    r = await client.post(
+        "/api/v1/documents/upload",
+        headers=tenant_headers,
+        data={"document_id": "x", "title": "T"},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_documents_upload_duplicate_returns_409(client, tenant_headers):
+    """Explicit document_id conflicts with existing upload."""
+    files = {"file": ("a.txt", b"First", "text/plain")}
+    await client.post("/api/v1/documents/upload", headers=tenant_headers, files=files)
+    r = await client.post(
+        "/api/v1/documents/upload",
+        headers=tenant_headers,
+        files={"file": ("b.txt", b"Second", "text/plain")},
+        data={"document_id": "a"},
+    )
+    assert r.status_code == 409
+    assert "already exists" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_documents_upload_duplicate_same_filename_returns_409(client, tenant_headers):
+    """Same filename twice: ID derived from stem conflicts on second upload."""
+    files = {"file": ("report.txt", b"First report", "text/plain")}
+    await client.post("/api/v1/documents/upload", headers=tenant_headers, files=files)
+    r = await client.post(
+        "/api/v1/documents/upload",
+        headers=tenant_headers,
+        files={"file": ("report.txt", b"Second report", "text/plain")},
+    )
+    assert r.status_code == 409
+    assert "already exists" in r.json()["detail"]
+    assert "report" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_documents_upload_duplicate_vs_json_create_returns_409(client, tenant_headers):
+    """Upload with document_id that matches doc created via POST /documents."""
+    await client.post(
+        "/api/v1/documents",
+        headers=tenant_headers,
+        json={"id": "conflict", "title": "From JSON", "text": "Existing"},
+    )
+    r = await client.post(
+        "/api/v1/documents/upload",
+        headers=tenant_headers,
+        files={"file": ("other.txt", b"New content", "text/plain")},
+        data={"document_id": "conflict"},
+    )
+    assert r.status_code == 409
+    assert "already exists" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_notary_summarize_with_document_id(client, tenant_headers):
     await client.post(
         "/api/v1/documents",

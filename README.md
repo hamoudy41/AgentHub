@@ -20,12 +20,15 @@ Configure `LLM_PROVIDER` and `LLM_BASE_URL` in `.env`. Optional `API_KEY` for `X
 ## Deploy
 
 ```bash
-docker compose up --build -d
-# UI: http://localhost  |  API: http://localhost:8000
+# Development: hot reload for API + frontend
+docker compose up --build
+# Frontend: http://localhost:5173  |  API: http://localhost:8000
+
+# Production: Kubernetes
 kubectl apply -k k8s/
 ```
 
-Compose: api, ui, Postgres, Redis, Ollama. UI proxies `/api` to the API. Pull model: `docker compose run ollama ollama pull llama3.1:8b`. For kind: `kind load docker-image ai-platform-api` and `kind load docker-image ai-platform-ui`.
+Compose is for development: api (uvicorn --reload), frontend (Vite dev), Postgres, Redis, Ollama. Code changes reload automatically. Optional: `docker compose --profile prod up` adds production nginx frontend on :80. Pull model: `docker compose run ollama ollama pull llama3.1:8b`.
 
 ## API
 
@@ -33,6 +36,7 @@ Compose: api, ui, Postgres, Redis, Ollama. UI proxies `/api` to the API. Pull mo
 |--------|------|------|
 | GET | `/api/v1/health` | — |
 | POST | `/api/v1/documents` | `id`, `title`, `text` |
+| POST | `/api/v1/documents/upload` | `file` (multipart), optional `document_id`, `title` |
 | GET | `/api/v1/documents/{id}` | — |
 | POST | `/api/v1/ai/notary/summarize` | `text`, optional `document_id`, `language` |
 | POST | `/api/v1/ai/classify` | `text`, optional `candidate_labels` |
@@ -46,7 +50,7 @@ Headers: `X-Tenant-ID` (default: `default`), optional `X-API-Key`. Metrics: `/me
 cd api
 pip install -e ".[dev]"
 pre-commit install                  # lint on commit (run once)
-pytest tests/ -v
+pytest tests/ -v                    # run from api/ so Python finds the app module
 alembic upgrade head
 alembic revision -m "msg" --autogenerate
 ruff check app tests --fix

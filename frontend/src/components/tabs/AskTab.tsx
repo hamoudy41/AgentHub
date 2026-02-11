@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ask } from '../../api'
 import type { AskResponse } from '../../api'
+import { Alert } from '../Alert'
 import { AskResult } from '../ResultPreview'
 
 export function AskTab() {
@@ -8,20 +9,17 @@ export function AskTab() {
   const [context, setContext] = useState('')
   const [result, setResult] = useState<AskResponse | null>(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const handleAsk = async () => {
     setLoading(true)
     setResult(null)
+    setError(null)
     try {
       const r = await ask(question, context)
       setResult(r)
     } catch (e) {
-      setResult({
-        answer: `Error: ${e}`,
-        model: 'fallback',
-        source: 'fallback',
-        metadata: { error: String(e) },
-      })
+      setError(String(e))
     } finally {
       setLoading(false)
     }
@@ -56,7 +54,12 @@ export function AskTab() {
           {loading ? 'Asking…' : 'Get answer'}
         </button>
       </div>
-      {result && <AskResult data={result} />}
+      {error && (
+        <Alert variant="error" onDismiss={() => setError(null)} className="mt-4">
+          {error}
+        </Alert>
+      )}
+      {result && !error && <AskResult data={result} />}
     </section>
   )
 }

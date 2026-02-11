@@ -1,20 +1,23 @@
 import { useState } from 'react'
 import { getHealth } from '../../api'
 import type { HealthStatus } from '../../api'
+import { Alert } from '../Alert'
 import { HealthResult } from '../ResultPreview'
 
 export function HealthTab() {
   const [health, setHealth] = useState<HealthStatus | null>(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchHealth = async () => {
     setLoading(true)
     setHealth(null)
+    setError(null)
     try {
       const h = await getHealth()
       setHealth(h)
-    } catch {
-      setHealth({ environment: 'error', timestamp: new Date().toISOString() })
+    } catch (e) {
+      setError(String(e))
     } finally {
       setLoading(false)
     }
@@ -31,7 +34,12 @@ export function HealthTab() {
       >
         {loading ? 'Loading…' : 'Check health'}
       </button>
-      {health && <HealthResult data={health} />}
+      {error && (
+        <Alert variant="error" onDismiss={() => setError(null)} className="mt-4">
+          {error}
+        </Alert>
+      )}
+      {health && !error && <HealthResult data={health} />}
     </section>
   )
 }

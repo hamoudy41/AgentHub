@@ -162,7 +162,8 @@ async def run_classify_flow(
         raise AiFlowError("candidate_labels cannot be empty")
     labels_str = ", ".join(payload.candidate_labels)
     prompt = (
-        f"Classify the following text into exactly one of these labels: {labels_str}. "
+        f"Classify the following text by document type. "
+        f"Choose exactly one label from: {labels_str}. "
         "Reply with only the single label word, nothing else.\n\nText:\n"
         f"{payload.text[:4000]}"
     )
@@ -170,7 +171,11 @@ async def run_classify_flow(
     try:
         result = await llm_client.complete(
             prompt,
-            system_prompt="You are a classifier. Output only one word: the label.",
+            system_prompt=(
+                "You are a document classifier. "
+                "Classify the given text into one of the provided document-type labels. "
+                "Output only the exact label word, nothing else."
+            ),
             tenant_id=tenant_id,
         )
         raw = (result.raw_text or "").strip().lower()

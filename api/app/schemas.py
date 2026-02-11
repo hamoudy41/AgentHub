@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 
 class DocumentCreate(BaseModel):
-    id: str
+    id: str = Field(..., min_length=1, description="Unique document ID")
     title: str
     text: str
 

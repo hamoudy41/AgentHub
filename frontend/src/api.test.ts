@@ -6,6 +6,7 @@ import {
   getDocument,
   getHealth,
   notarySummarize,
+  uploadDocument,
 } from './api'
 
 describe('api', () => {
@@ -125,6 +126,21 @@ describe('api', () => {
     )
   })
 
+  it('createDocument throws with API detail for 409 (duplicate ID)', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          detail: "Document with ID 'dup' already exists. Use Get by ID to view, or choose a different ID.",
+        }),
+        { status: 409, headers: { 'Content-Type': 'application/json' } }
+      )
+    )
+    await expect(
+      createDocument({ id: 'dup', title: 'T', text: 'C' })
+    ).rejects.toThrow(/already exists/)
+  })
+
   it('getDocument fetches by id', async () => {
     const mockFetch = vi.mocked(fetch)
     mockFetch.mockResolvedValueOnce(
@@ -145,6 +161,101 @@ describe('api', () => {
     const mockFetch = vi.mocked(fetch)
     mockFetch.mockResolvedValueOnce(new Response('Not found', { status: 404 }))
     await expect(getDocument('missing')).rejects.toThrow()
+  })
+
+  it('uploadDocument sends file and returns document', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: 'uploaded',
+          title: 'My file.txt',
+          text: 'File content',
+          created_at: '2024-01-01',
+        }),
+        { status: 201 }
+      )
+    )
+    const file = new File(['File content'], 'My file.txt', { type: 'text/plain' })
+    const result = await uploadDocument(file)
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/documents/upload'),
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.any(FormData),
+      })
+    )
+    expect(result.id).toBe('uploaded')
+  })
+
+  it('uploadDocument with documentId and title appends to form', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ id: 'doc1', title: 'Custom Title', text: 'x', created_at: '' }),
+        { status: 201 }
+      )
+    )
+    const file = new File(['x'], 'f.txt')
+    await uploadDocument(file, { documentId: 'doc1', title: 'Custom Title' })
+    const call = mockFetch.mock.calls[0][1]
+    const body = call?.body as FormData
+    expect(body.get('document_id')).toBe('doc1')
+    expect(body.get('title')).toBe('Custom Title')
+  })
+
+  it('uploadDocument throws on error', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch.mockResolvedValueOnce(new Response('File too large', { status: 413 }))
+    const file = new File(['x'], 'f.txt')
+    await expect(uploadDocument(file)).rejects.toThrow()
+  })
+
+  it('uploadDocument throws with API detail for 413 (file too large)', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: 'File too large (max 5 MB)' }), {
+        status: 413,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+    const file = new File(['x'], 'f.txt')
+    await expect(uploadDocument(file)).rejects.toThrow('File too large (max 5 MB)')
+  })
+
+  it('uploadDocument throws with API detail for 400 (invalid encoding)', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ detail: 'File could not be decoded as UTF-8 text' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    )
+    const file = new File(['x'], 'f.txt')
+    await expect(uploadDocument(file)).rejects.toThrow(
+      'File could not be decoded as UTF-8 text'
+    )
+  })
+
+  it('uploadDocument throws with API detail for 409 (duplicate ID)', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          detail: "Document with ID 'doc1' already exists. Use a different ID or Get by ID to view.",
+        }),
+        { status: 409, headers: { 'Content-Type': 'application/json' } }
+      )
+    )
+    const file = new File(['x'], 'f.txt')
+    await expect(uploadDocument(file)).rejects.toThrow(/already exists/)
+  })
+
+  it('uploadDocument uses plain text when response is not JSON', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch.mockResolvedValueOnce(new Response('Plain error message', { status: 500 }))
+    const file = new File(['x'], 'f.txt')
+    await expect(uploadDocument(file)).rejects.toThrow('Plain error message')
   })
 
   it('classify sends text and labels', async () => {

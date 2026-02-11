@@ -34,5 +34,5 @@ React + TypeScript, Tailwind. See `frontend/README.md`.
 
 - **ai-platform-api**: FastAPI only. `api/Dockerfile`.
 - **ai-platform-ui**: nginx + SPA, proxies `/api` to API. `frontend/Dockerfile`.
-- Compose: api, ui, Postgres, Redis, Ollama.
-- K8s: `kubectl apply -k k8s/` (api + ui deployments)
+- **Compose (dev)**: api (uvicorn --reload), frontend (Vite dev), Postgres, Redis, Ollama. Hot reload on code changes. Optional: `--profile prod` adds nginx frontend on :80.
+- **Production**: `kubectl apply -k k8s/` (api + ui deployments)

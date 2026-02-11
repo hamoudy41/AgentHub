@@ -1,4 +1,30 @@
 services:
+  # Dev: API with hot reload. Source mounted, code changes restart uvicorn.
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    image: ai-platform-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./api:/app
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/aiplatform
+      REDIS_URL: redis://redis:6379/0
+      LLM_PROVIDER: ollama
+      LLM_BASE_URL: http://ollama:11434
+      LLM_MODEL: llama3.2:1b
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      ollama:
+        condition: service_started
+
+  # Dev: Frontend Vite server with hot reload. Source mounted.
   frontend:
     image: node:22-alpine
     working_dir: /app
@@ -14,28 +40,6 @@ services:
       api:
         condition: service_started
 
-  api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
-    image: ai-platform-api
-    ports:
-      - "8000:8000"
-    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
-    environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/aiplatform
-      REDIS_URL: redis://redis:6379/0
-      LLM_PROVIDER: ollama
-      LLM_BASE_URL: http://ollama:11434
-      LLM_MODEL: llama3.2:1b
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
-      ollama:
-        condition: service_started
-
   migrate:
     build:
       context: ./api
@@ -48,7 +52,8 @@ services:
       db:
         condition: service_healthy
 
-  ui:
+  # Optional: production-style frontend for local testing. Use K8s for real production.
+  frontend-prod:
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -58,6 +63,8 @@ services:
     depends_on:
       api:
         condition: service_started
+    profiles:
+      - prod
 
   ollama:
     image: ollama/ollama:latest
