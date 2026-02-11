@@ -13,6 +13,8 @@ async def test_health(client):
     assert data["status"] == "ok"
     assert "environment" in data
     assert "timestamp" in data
+    assert "db_ok" in data
+    assert "redis_ok" in data
     assert "llm_ok" in data
     assert data["llm_ok"] is True  # conftest sets LLM_PROVIDER + LLM_BASE_URL
 
@@ -332,3 +334,103 @@ async def test_classify_400_when_llm_not_configured(client, tenant_headers):
         )
     assert r.status_code == 400
     assert "LLM not configured" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_response_includes_security_headers(client):
+    """Responses include X-Content-Type-Options, X-Frame-Options, Referrer-Policy."""
+    r = await client.get("/api/v1/health")
+    assert r.status_code == 200
+    assert r.headers.get("X-Content-Type-Options") == "nosniff"
+    assert r.headers.get("X-Frame-Options") == "DENY"
+    assert "strict-origin" in (r.headers.get("Referrer-Policy") or "")
+
+
+@pytest.mark.asyncio
+async def test_response_includes_request_id(client):
+    """Response includes X-Request-ID, from request or generated."""
+    r = await client.get("/api/v1/health")
+    assert r.status_code == 200
+    assert "X-Request-ID" in r.headers
+    assert len(r.headers["X-Request-ID"]) >= 16
+
+
+@pytest.mark.asyncio
+async def test_request_id_propagates_from_header(client):
+    """When client sends X-Request-ID, same value is returned."""
+    req_id = "test-request-id-12345"
+    r = await client.get("/api/v1/health", headers={"X-Request-ID": req_id})
+    assert r.status_code == 200
+    assert r.headers.get("X-Request-ID") == req_id
+
+
+@pytest.mark.asyncio
+async def test_documents_create_rejects_text_over_max_length(client, tenant_headers):
+    """Document text exceeding 500k chars returns 422."""
+    long_text = "x" * 500_001
+    r = await client.post(
+        "/api/v1/documents",
+        headers=tenant_headers,
+        json={"id": "d1", "title": "T", "text": long_text},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_ask_rejects_question_over_max_length(client, tenant_headers):
+    """Ask question exceeding 2000 chars returns 422."""
+    long_q = "x" * 2001
+    r = await client.post(
+        "/api/v1/ai/ask",
+        headers=tenant_headers,
+        json={"question": long_q, "context": "Some context."},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_classify_rejects_too_many_candidate_labels(client, tenant_headers):
+    """Classify with more than 10 candidate_labels returns 422."""
+    labels = [f"label_{i}" for i in range(11)]
+    r = await client.post(
+        "/api/v1/ai/classify",
+        headers=tenant_headers,
+        json={"text": "Hello", "candidate_labels": labels},
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_cors_allows_origin(client):
+    """CORS middleware adds Access-Control-Allow-Origin for requests with Origin header."""
+    r = await client.get(
+        "/api/v1/health",
+        headers={"Origin": "https://example.com"},
+    )
+    assert r.status_code == 200
+    assert "access-control-allow-origin" in [h.lower() for h in r.headers]
+
+
+@pytest.mark.asyncio
+async def test_metrics_requires_api_key_when_configured(client_with_api_key):
+    """When API_KEY is set, /metrics returns 401 without X-API-Key."""
+    r = await client_with_api_key.get("/metrics")
+    assert r.status_code == 401
+    assert (
+        "api key" in r.json().get("detail", "").lower()
+        or "key" in r.json().get("detail", "").lower()
+    )
+
+
+@pytest.mark.asyncio
+async def test_metrics_succeeds_with_valid_api_key(client_with_api_key):
+    """When API_KEY is set, /metrics returns 200 with valid X-API-Key."""
+    r = await client_with_api_key.get("/metrics", headers={"X-API-Key": "test-secret-key"})
+    assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_health_remains_public_when_api_key_configured(client_with_api_key):
+    """Health endpoint does not require API key."""
+    r = await client_with_api_key.get("/api/v1/health")
+    assert r.status_code == 200

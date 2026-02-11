@@ -5,6 +5,7 @@ export interface HealthStatus {
   environment: string
   timestamp: string
   db_ok?: boolean
+  redis_ok?: boolean | null
   llm_ok?: boolean
 }
 

@@ -40,6 +40,18 @@ async def close_redis() -> None:
         _redis = None
 
 
+async def ping_redis() -> bool | None:
+    """Return True if Redis is reachable, False if configured but unreachable, None if not configured."""
+    client = await get_redis()
+    if not client:
+        return None
+    try:
+        await client.ping()
+        return True
+    except Exception:
+        return False
+
+
 def _rate_limit_key(tenant_id: str) -> str:
     return f"rl:{tenant_id}"
 

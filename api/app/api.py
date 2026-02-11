@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 
 import orjson
+import structlog.contextvars
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -28,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .core.config import get_settings
 from .core.logging import configure_logging, get_logger
 from .core.metrics import REQUEST_COUNT, REQUEST_LATENCY, get_metrics, metrics_content_type
-from .core.redis import cache_key, check_rate_limit, close_redis, get_cached, set_cached
+from .core.redis import cache_key, check_rate_limit, close_redis, get_cached, ping_redis, set_cached
 from .db import get_db_session, get_engine
 from .models import Base, Document
 from .schemas import (
@@ -112,13 +114,40 @@ def create_app() -> FastAPI:
         version="0.1.0",
         default_response_class=ORJSONResponse,
     )
+
+    @app.middleware("http")
+    async def request_id_middleware(request: Request, call_next):
+        request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            structlog.contextvars.clear_contextvars()
+
+    _cors_origins = (
+        [o.strip() for o in settings.cors_allowed_origins.split(",") if o.strip()]
+        if settings.cors_allowed_origins and settings.cors_allowed_origins.strip() != "*"
+        else ["*"]
+    )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=_cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def security_headers_middleware(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        if settings.environment == "prod":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -163,13 +192,17 @@ def create_app() -> FastAPI:
             return await call_next(request)
 
     if settings.api_key:
-        _no_auth_paths = {"/metrics", f"{settings.api_v1_prefix}/health"}
+        _no_auth_paths = {f"{settings.api_v1_prefix}/health"}
 
         @app.middleware("http")
         async def api_key_middleware(request: Request, call_next):
             if request.url.path in _no_auth_paths:
                 return await call_next(request)
-            if request.url.path.startswith(f"{settings.api_v1_prefix}/"):
+            require_auth = (
+                request.url.path.startswith(f"{settings.api_v1_prefix}/")
+                or request.url.path == "/metrics"
+            )
+            if require_auth:
                 key = request.headers.get("X-API-Key")
                 if key != settings.api_key:
                     return ORJSONResponse(
@@ -218,10 +251,12 @@ def create_app() -> FastAPI:
             logger.warning("health.db_check_failed", error=str(exc))
             db_ok = False
         llm_ok = llm_client.is_configured()
+        redis_ok = await ping_redis()
         return HealthStatus(
             environment=settings.environment,
             timestamp=datetime.now(timezone.utc),
             db_ok=db_ok,
+            redis_ok=redis_ok,
             llm_ok=llm_ok,
         )
 

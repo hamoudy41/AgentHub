@@ -42,3 +42,32 @@ async def client(app):
 @pytest.fixture
 def tenant_headers():
     return {"X-Tenant-ID": "tenant-1"}
+
+
+@pytest.fixture
+def app_with_api_key():
+    """App with API_KEY and ENVIRONMENT=prod for auth tests."""
+    from app.core.config import get_settings
+
+    orig_env = os.environ.copy()
+    os.environ["API_KEY"] = "test-secret-key"
+    os.environ["ENVIRONMENT"] = "prod"
+    get_settings.cache_clear()
+    try:
+        yield create_app()
+    finally:
+        os.environ.clear()
+        os.environ.update(orig_env)
+        get_settings.cache_clear()
+        # Restore conftest defaults
+        os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+        os.environ["LLM_PROVIDER"] = "ollama"
+        os.environ["LLM_BASE_URL"] = "http://localhost:11434"
+
+
+@pytest.fixture
+async def client_with_api_key(app_with_api_key):
+    """Client for app with API key auth enabled."""
+    transport = ASGITransport(app=app_with_api_key)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
