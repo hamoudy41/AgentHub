@@ -6,6 +6,8 @@ import {
   getDocument,
   getHealth,
   notarySummarize,
+  ragIndex,
+  ragQuery,
   uploadDocument,
 } from './api'
 
@@ -367,5 +369,68 @@ describe('api', () => {
     const mockFetch = vi.mocked(fetch)
     mockFetch.mockResolvedValueOnce(new Response('Error', { status: 500 }))
     await expect(ask('Q', 'C')).rejects.toThrow()
+  })
+
+  it('ragQuery sends query and returns answer', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          answer: 'Paris',
+          sources: [],
+          model: 'llama3.2',
+        }),
+        { status: 200 }
+      )
+    )
+    const result = await ragQuery('Capital of France?')
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/ai/rag/query'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ query: 'Capital of France?' }),
+      })
+    )
+    expect(result.answer).toBe('Paris')
+  })
+
+  it('ragQuery with documentIds and topK', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ answer: 'x', sources: [], model: 'llm' }),
+        { status: 200 }
+      )
+    )
+    await ragQuery('Q', { documentIds: ['d1', 'd2'], topK: 10 })
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: JSON.stringify({ query: 'Q', document_ids: ['d1', 'd2'], top_k: 10 }),
+      })
+    )
+  })
+
+  it('ragIndex sends document_id and returns chunks_indexed', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          document_id: 'doc1',
+          chunks_indexed: 3,
+          status: 'indexed',
+        }),
+        { status: 200 }
+      )
+    )
+    const result = await ragIndex('doc1')
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/ai/rag/index'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ document_id: 'doc1' }),
+      })
+    )
+    expect(result.chunks_indexed).toBe(3)
   })
 })

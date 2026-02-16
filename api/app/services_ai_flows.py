@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, AsyncIterator
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -302,3 +302,37 @@ async def run_ask_flow(
             logger.warning("ai_flow.rollback_failed", flow="ask", error=str(exc))
         out.metadata["audit_persisted"] = False
     return out
+
+
+async def run_ask_flow_stream(
+    *,
+    tenant_id: str,
+    db: AsyncSession,
+    payload: AskRequest,
+) -> AsyncIterator[str]:
+    """Stream LLM tokens for the ask flow. Raises AiFlowError if LLM not configured."""
+    if not llm_client.is_configured():
+        raise AiFlowError(
+            "LLM not configured. Set LLM_PROVIDER and LLM_BASE_URL (e.g. ollama + http://localhost:11434)."
+        )
+    prompt = (
+        "Answer the question based only on the following context. "
+        "If the context does not contain the answer, say so briefly.\n\n"
+        f"Context:\n{payload.context[:8000]}\n\nQuestion: {payload.question}"
+    )
+    try:
+        async for chunk in llm_client.stream_complete(
+            prompt,
+            system_prompt="You are a helpful assistant. Answer concisely based only on the given context.",
+            tenant_id=tenant_id,
+        ):
+            yield chunk
+        LLM_CALLS.labels(flow="ask_stream", source="llm").inc()
+    except LLMNotConfiguredError:
+        raise AiFlowError(
+            "LLM not configured. Set LLM_PROVIDER and LLM_BASE_URL (e.g. ollama + http://localhost:11434)."
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("ai_flow.ask_stream_failed", error=str(exc))
+        LLM_CALLS.labels(flow="ask_stream", source="fallback").inc()
+        yield "Answer unavailable (model error)."

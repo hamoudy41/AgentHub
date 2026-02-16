@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     cors_allowed_origins: str = "*"
     # Purge ai_call_audit records older than this many days. 0 = disabled.
     ai_audit_retention_days: int = 0
+    # RAG: embedding model. "mock" for tests (returns deterministic vectors).
+    embedding_model: str = "mock"
+    embedding_dimension: int = 384
 
     @model_validator(mode="after")
     def require_api_key_in_prod(self: "Settings") -> "Settings":

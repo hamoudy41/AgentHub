@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -151,6 +152,108 @@ class LLMClient:
             system_prompt="You are a concise assistant for notarial document summarization. Reply only with the summary, no preamble.",
             tenant_id=tenant_id,
         )
+
+    async def stream_complete(
+        self,
+        prompt: str,
+        *,
+        system_prompt: Optional[str] = None,
+        tenant_id: str = "default",
+    ) -> AsyncIterator[str]:
+        """Stream LLM tokens one chunk at a time. Raises LLMNotConfiguredError if not configured."""
+        if not self.is_configured():
+            raise LLMNotConfiguredError(
+                "LLM not configured. Set LLM_PROVIDER and LLM_BASE_URL (e.g. ollama + http://localhost:11434)."
+            )
+        if self._settings.llm_provider == "ollama":
+            async for chunk in self._stream_ollama(prompt, system_prompt=system_prompt):
+                yield chunk
+        else:
+            async for chunk in self._stream_openai(prompt, system_prompt=system_prompt):
+                yield chunk
+
+    async def _stream_ollama(
+        self,
+        prompt: str,
+        *,
+        system_prompt: Optional[str] = None,
+    ) -> AsyncIterator[str]:
+        base = str(self._settings.llm_base_url).rstrip("/")
+        url = f"{base}/api/generate"
+        payload: dict[str, Any] = {
+            "model": self._settings.llm_model,
+            "prompt": prompt,
+            "stream": True,
+        }
+        if system_prompt:
+            payload["system"] = system_prompt
+        async with httpx.AsyncClient(timeout=self._settings.llm_timeout_seconds) as client:
+            try:
+                async with client.stream("POST", url, json=payload) as r:
+                    if r.status_code != 200:
+                        body = await r.aread()
+                        raise LLMError(f"Ollama returned {r.status_code}: {body.decode()[:500]}")
+                    async for line in r.aiter_lines():
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        chunk = data.get("response") or data.get("text") or ""
+                        if isinstance(chunk, str) and chunk:
+                            yield chunk
+            except httpx.RequestError as e:
+                logger.warning("llm.ollama_stream_error", error=str(e))
+                raise LLMError("Ollama stream request failed") from e
+
+    async def _stream_openai(
+        self,
+        prompt: str,
+        *,
+        system_prompt: Optional[str] = None,
+    ) -> AsyncIterator[str]:
+        base = str(self._settings.llm_base_url).rstrip("/")
+        url = f"{base}/v1/chat/completions"
+        messages: list[dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        payload: dict[str, Any] = {
+            "model": self._settings.llm_model,
+            "messages": messages,
+            "max_tokens": 2048,
+            "stream": True,
+        }
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self._settings.llm_api_key:
+            headers["Authorization"] = f"Bearer {self._settings.llm_api_key}"
+        async with httpx.AsyncClient(timeout=self._settings.llm_timeout_seconds) as client:
+            try:
+                async with client.stream("POST", url, json=payload, headers=headers) as r:
+                    if r.status_code != 200:
+                        body = await r.aread()
+                        raise LLMError(
+                            f"OpenAI-compatible returned {r.status_code}: {body.decode()[:500]}"
+                        )
+                    async for line in r.aiter_lines():
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:].strip()
+                        if data_str == "[DONE]":
+                            return
+                        try:
+                            data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+                        for choice in data.get("choices", []):
+                            delta = choice.get("delta", {})
+                            content = delta.get("content")
+                            if isinstance(content, str) and content:
+                                yield content
+            except httpx.RequestError as e:
+                logger.warning("llm.openai_stream_error", error=str(e))
+                raise LLMError("OpenAI-compatible stream request failed") from e
 
 
 llm_client = LLMClient()

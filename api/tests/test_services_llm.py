@@ -191,3 +191,106 @@ async def test_generate_notary_summary_raises_when_not_configured():
         with pytest.raises(LLMNotConfiguredError) as exc_info:
             await client.generate_notary_summary("Summarize this.", tenant_id="t1")
         assert "LLM not configured" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_stream_complete_raises_when_not_configured():
+    with patch("app.services_llm.get_settings") as m:
+        m.return_value.llm_base_url = None
+        m.return_value.llm_provider = ""
+        client = LLMClient()
+        with pytest.raises(LLMNotConfiguredError):
+            async for _ in client.stream_complete("hi", tenant_id="t1"):
+                pass
+
+
+@pytest.mark.asyncio
+async def test_stream_ollama_success():
+    async def fake_aiter_lines():
+        yield '{"response": "Hello"}'
+        yield '{"response": " world"}'
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.aiter_lines = fake_aiter_lines
+
+    mock_stream_ctx = MagicMock()
+    mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_stream_ctx.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("app.services_llm.get_settings") as m:
+        m.return_value.llm_base_url = "http://localhost:11434"
+        m.return_value.llm_provider = "ollama"
+        m.return_value.llm_model = "llama3.2"
+        m.return_value.llm_timeout_seconds = 30
+        client = LLMClient()
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_client.stream = MagicMock(return_value=mock_stream_ctx)
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+            mock_client_cls.return_value.__aexit__.return_value = None
+
+            tokens = []
+            async for t in client.stream_complete("hi", tenant_id="t1"):
+                tokens.append(t)
+            assert "".join(tokens) == "Hello world"
+
+
+@pytest.mark.asyncio
+async def test_stream_ollama_non_200_raises():
+    mock_response = MagicMock()
+    mock_response.status_code = 500
+    mock_response.aread = AsyncMock(return_value=b"Server error")
+
+    mock_stream_ctx = MagicMock()
+    mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_stream_ctx.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("app.services_llm.get_settings") as m:
+        m.return_value.llm_base_url = "http://localhost:11434"
+        m.return_value.llm_provider = "ollama"
+        m.return_value.llm_model = "llama3.2"
+        m.return_value.llm_timeout_seconds = 30
+        client = LLMClient()
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_client.stream = MagicMock(return_value=mock_stream_ctx)
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            with pytest.raises(Exception) as exc_info:
+                async for _ in client.stream_complete("hi", tenant_id="t1"):
+                    pass
+            assert "500" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_stream_openai_success():
+    async def fake_aiter_lines():
+        yield 'data: {"choices":[{"delta":{"content":"Hi"}}]}'
+        yield 'data: {"choices":[{"delta":{"content":"!"}}]}'
+        yield "data: [DONE]"
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.aiter_lines = fake_aiter_lines
+
+    mock_stream_ctx = MagicMock()
+    mock_stream_ctx.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_stream_ctx.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("app.services_llm.get_settings") as m:
+        m.return_value.llm_base_url = "http://localhost:8000"
+        m.return_value.llm_provider = "openai_compatible"
+        m.return_value.llm_model = "llama"
+        m.return_value.llm_api_key = None
+        m.return_value.llm_timeout_seconds = 30
+        client = LLMClient()
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_client.stream = MagicMock(return_value=mock_stream_ctx)
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+
+            tokens = []
+            async for t in client.stream_complete("hi", tenant_id="t1"):
+                tokens.append(t)
+            assert "".join(tokens) == "Hi!"

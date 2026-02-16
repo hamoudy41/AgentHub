@@ -1,2 +1,11 @@
 [tool.pytest.ini_options]
 pythonpath = ["api"]
+
+[tool.coverage.run]
+source = ["api/app"]
+branch = true
+omit = ["api/app/__init__.py", "api/app/main.py"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

@@ -6,10 +6,11 @@ import {
   HealthTab,
   Layout,
   NotaryTab,
+  RAGTab,
 } from './components'
 
 export default function App() {
-  const [tab, setTab] = useState<'health' | 'documents' | 'classify' | 'notary' | 'ask'>('health')
+  const [tab, setTab] = useState<import('./components').TabId>('health')
 
   return (
     <Layout tab={tab} onTabChange={setTab}>
@@ -18,6 +19,7 @@ export default function App() {
       {tab === 'classify' && <ClassifyTab />}
       {tab === 'notary' && <NotaryTab />}
       {tab === 'ask' && <AskTab />}
+      {tab === 'rag' && <RAGTab />}
     </Layout>
   )
 }

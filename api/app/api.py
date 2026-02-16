@@ -21,7 +21,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import ORJSONResponse, Response
+from fastapi.responses import ORJSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
@@ -43,14 +43,21 @@ from .schemas import (
     HealthStatus,
     NotarySummarizeRequest,
     NotarySummarizeResponse,
+    RAGIndexRequest,
+    RAGIndexResponse,
+    RAGQueryRequest,
+    RAGQueryResponse,
 )
+from .rag.pipeline import rag_pipeline
 from .services_ai_flows import (
     AiFlowError,
     run_ask_flow,
+    run_ask_flow_stream,
     run_classify_flow,
     run_notary_summarization_flow,
 )
 from .services_llm import llm_client
+from .services_rag import run_rag_query_flow, run_rag_query_flow_stream
 
 
 logger = get_logger(__name__)
@@ -430,6 +437,102 @@ def create_app() -> FastAPI:
         db: AsyncSession = Depends(get_db_session),
     ) -> AskResponse:
         return await run_ask_flow(tenant_id=tenant_id, db=db, payload=payload)
+
+    @api_router.post("/ai/ask/stream", status_code=status.HTTP_200_OK)
+    async def ask_stream(
+        payload: AskRequest,
+        tenant_id: str = Depends(get_tenant_id),
+        db: AsyncSession = Depends(get_db_session),
+    ):
+        if not llm_client.is_configured():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="LLM not configured. Set LLM_PROVIDER and LLM_BASE_URL (e.g. ollama + http://localhost:11434).",
+            )
+
+        async def generate():
+            try:
+                async for chunk in run_ask_flow_stream(tenant_id=tenant_id, db=db, payload=payload):
+                    yield f"data: {orjson.dumps({'token': chunk}).decode()}\n\n".encode()
+            except AiFlowError as e:
+                yield f"data: {orjson.dumps({'error': str(e), 'done': True}).decode()}\n\n".encode()
+                return
+            yield f"data: {orjson.dumps({'done': True}).decode()}\n\n".encode()
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @api_router.post(
+        "/ai/rag/query",
+        response_model=RAGQueryResponse,
+        status_code=status.HTTP_200_OK,
+    )
+    async def rag_query(
+        payload: RAGQueryRequest,
+        tenant_id: str = Depends(get_tenant_id),
+        db: AsyncSession = Depends(get_db_session),
+    ) -> RAGQueryResponse:
+        result = await run_rag_query_flow(tenant_id=tenant_id, db=db, payload=payload)
+        return RAGQueryResponse(**result)
+
+    @api_router.post("/ai/rag/query/stream", status_code=status.HTTP_200_OK)
+    async def rag_query_stream(
+        payload: RAGQueryRequest,
+        tenant_id: str = Depends(get_tenant_id),
+        db: AsyncSession = Depends(get_db_session),
+    ):
+        async def generate():
+            try:
+                async for chunk in run_rag_query_flow_stream(
+                    tenant_id=tenant_id, db=db, payload=payload
+                ):
+                    yield f"data: {orjson.dumps({'token': chunk}).decode()}\n\n".encode()
+            except Exception as e:
+                yield f"data: {orjson.dumps({'error': str(e), 'done': True}).decode()}\n\n".encode()
+                return
+            yield f"data: {orjson.dumps({'done': True}).decode()}\n\n".encode()
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @api_router.post(
+        "/ai/rag/index",
+        response_model=RAGIndexResponse,
+        status_code=status.HTTP_200_OK,
+    )
+    async def rag_index(
+        payload: RAGIndexRequest,
+        tenant_id: str = Depends(get_tenant_id),
+        db: AsyncSession = Depends(get_db_session),
+    ) -> RAGIndexResponse:
+        result = await db.execute(
+            select(Document).where(
+                Document.id == payload.document_id,
+                Document.tenant_id == tenant_id,
+            )
+        )
+        doc = result.scalar_one_or_none()
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document '{payload.document_id}' not found",
+            )
+        chunks_indexed = await rag_pipeline.index_document(
+            tenant_id=tenant_id,
+            document_id=payload.document_id,
+            text=doc.text,
+            db=db,
+        )
+        return RAGIndexResponse(
+            document_id=payload.document_id,
+            chunks_indexed=chunks_indexed,
+        )
 
     app.include_router(api_router)
 

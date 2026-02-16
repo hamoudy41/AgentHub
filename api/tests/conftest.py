@@ -13,18 +13,34 @@ os.environ["LLM_BASE_URL"] = "http://localhost:11434"
 
 from app.api import create_app
 from app.db import get_engine
-from app.models import AiCallAudit, Base, Document
+from app.models import AiCallAudit, Base, Document, DocumentChunk
 
 
 @pytest.fixture(autouse=True)
 async def _clean_db():
-    """Ensure tables exist and clear documents + audit before each test for isolation."""
+    """Ensure tables exist and clear documents + audit + chunks before each test for isolation."""
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(delete(DocumentChunk))
         await conn.execute(delete(AiCallAudit))
         await conn.execute(delete(Document))
     yield
+
+
+@pytest.fixture
+def tenant_id():
+    return "tenant-1"
+
+
+@pytest.fixture
+async def db_session():
+    """Provide a DB session for direct pipeline testing."""
+    from app.db import get_session_factory
+
+    factory = get_session_factory()
+    async with factory() as session:
+        yield session
 
 
 @pytest.fixture

@@ -14,6 +14,7 @@ from app.schemas import (
 )
 from app.services_ai_flows import (
     run_ask_flow,
+    run_ask_flow_stream,
     run_classify_flow,
     run_notary_summarization_flow,
 )
@@ -178,3 +179,40 @@ async def test_ask_fallback_on_exception(db_session):
         )
         assert out.source == "fallback"
         assert "unavailable" in out.answer.lower() or "error" in out.answer.lower()
+
+
+@pytest.mark.asyncio
+async def test_ask_stream_success(db_session):
+    """run_ask_flow_stream yields tokens from llm_client.stream_complete."""
+    with patch("app.services_ai_flows.llm_client") as mock_llm:
+
+        async def fake_stream(*args, **kwargs):
+            yield "The "
+            yield "answer."
+
+        mock_llm.is_configured.return_value = True
+        mock_llm.stream_complete = fake_stream
+        tokens = []
+        async for t in run_ask_flow_stream(
+            tenant_id="t1",
+            db=db_session,
+            payload=AskRequest(question="Q?", context="C"),
+        ):
+            tokens.append(t)
+        assert "".join(tokens) == "The answer."
+
+
+@pytest.mark.asyncio
+async def test_ask_stream_fallback_on_exception(db_session):
+    """run_ask_flow_stream yields fallback message when stream_complete raises."""
+    with patch("app.services_ai_flows.llm_client") as mock_llm:
+        mock_llm.is_configured.return_value = True
+        mock_llm.stream_complete = AsyncMock(side_effect=RuntimeError("Stream failed"))
+        tokens = []
+        async for t in run_ask_flow_stream(
+            tenant_id="t1",
+            db=db_session,
+            payload=AskRequest(question="Q?", context="C"),
+        ):
+            tokens.append(t)
+        assert "".join(tokens) == "Answer unavailable (model error)."

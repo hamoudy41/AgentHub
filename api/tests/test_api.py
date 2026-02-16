@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -434,3 +434,70 @@ async def test_health_remains_public_when_api_key_configured(client_with_api_key
     """Health endpoint does not require API key."""
     r = await client_with_api_key.get("/api/v1/health")
     assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_api_key_required_for_ai_endpoints(client_with_api_key):
+    """AI endpoints return 401 without valid API key."""
+    r = await client_with_api_key.post(
+        "/api/v1/ai/ask",
+        headers={"X-Tenant-ID": "t1"},
+        json={"question": "Q?", "context": "C"},
+    )
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_documents_get_uses_cache_when_available(client, tenant_headers):
+    """get_document returns cached value when Redis has it."""
+    from unittest.mock import patch
+    import orjson
+
+    await client.post(
+        "/api/v1/documents",
+        headers=tenant_headers,
+        json={"id": "cached-doc", "title": "Cached", "text": "Content"},
+    )
+    cached = orjson.dumps(
+        {
+            "id": "cached-doc",
+            "title": "Cached",
+            "text": "From cache",
+            "created_at": "2024-01-01T00:00:00Z",
+        }
+    ).decode()
+
+    with patch("app.api.get_cached", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = cached
+        r = await client.get(
+            "/api/v1/documents/cached-doc",
+            headers=tenant_headers,
+        )
+    assert r.status_code == 200
+    assert r.json()["text"] == "From cache"
+
+
+@pytest.mark.asyncio
+async def test_ask_stream_yields_error_on_ai_flow_error(client, tenant_headers):
+    """ask/stream yields error event when AiFlowError occurs."""
+    from app.services_ai_flows import AiFlowError
+
+    with patch("app.api.run_ask_flow_stream") as mock_stream:
+
+        async def fail_stream(*args, **kwargs):
+            raise AiFlowError("LLM failed")
+            yield  # make it an async generator
+
+        mock_stream.return_value = fail_stream()
+
+        async with client.stream(
+            "POST",
+            "/api/v1/ai/ask/stream",
+            headers=tenant_headers,
+            json={"question": "Q?", "context": "C"},
+        ) as r:
+            assert r.status_code == 200
+            body = (await r.aread()).decode()
+            chunks = [line for line in body.split("\n") if line.startswith("data:")]
+            assert len(chunks) >= 1
+            assert "error" in chunks[0].lower() or "done" in chunks[0].lower()

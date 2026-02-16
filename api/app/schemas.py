@@ -68,6 +68,29 @@ class AskResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class RAGQueryRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=2000)
+    document_ids: Optional[list[str]] = Field(None, max_length=20)
+    top_k: int = Field(5, ge=1, le=20)
+
+
+class RAGQueryResponse(BaseModel):
+    answer: str
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    model: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class RAGIndexRequest(BaseModel):
+    document_id: str = Field(..., min_length=1, max_length=64)
+
+
+class RAGIndexResponse(BaseModel):
+    document_id: str
+    chunks_indexed: int
+    status: Literal["indexed"] = "indexed"
+
+
 class HealthStatus(BaseModel):
     status: Literal["ok"] = "ok"
     environment: str

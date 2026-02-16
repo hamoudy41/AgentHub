@@ -41,6 +41,10 @@ Compose is for development: api (uvicorn --reload), frontend (Vite dev), Postgre
 | POST | `/api/v1/ai/notary/summarize` | `text`, optional `document_id`, `language` |
 | POST | `/api/v1/ai/classify` | `text`, optional `candidate_labels` |
 | POST | `/api/v1/ai/ask` | `question`, `context` |
+| POST | `/api/v1/ai/ask/stream` | `question`, `context` (SSE streaming) |
+| POST | `/api/v1/ai/rag/query` | `query`, optional `document_ids`, `top_k` |
+| POST | `/api/v1/ai/rag/query/stream` | `query` (SSE streaming) |
+| POST | `/api/v1/ai/rag/index` | `document_id` |
 
 Headers: `X-Tenant-ID` (default: `default`), optional `X-API-Key`. Metrics: `/metrics`. Postman: `postman/AI-Platform.postman_collection.json`.
 

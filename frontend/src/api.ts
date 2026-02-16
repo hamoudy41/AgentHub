@@ -180,3 +180,48 @@ export async function ask(
   if (!r.ok) throw new Error(await parseError(r))
   return r.json()
 }
+
+export interface RAGQueryResponse {
+  answer: string
+  sources: Array<{ text: string; document_id: string; score: number }>
+  model: string
+  metadata?: Record<string, unknown>
+}
+
+export interface RAGIndexResponse {
+  document_id: string
+  chunks_indexed: number
+  status: 'indexed'
+}
+
+export async function ragQuery(
+  query: string,
+  options: { documentIds?: string[]; topK?: number } = {},
+  apiKey?: string,
+  tenantId?: string
+): Promise<RAGQueryResponse> {
+  const body: Record<string, unknown> = { query }
+  if (options.documentIds?.length) body.document_ids = options.documentIds
+  if (options.topK != null) body.top_k = options.topK
+  const r = await fetch(`${API_BASE}/ai/rag/query`, {
+    method: 'POST',
+    headers: headers(apiKey, tenantId),
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) throw new Error(await parseError(r))
+  return r.json()
+}
+
+export async function ragIndex(
+  documentId: string,
+  apiKey?: string,
+  tenantId?: string
+): Promise<RAGIndexResponse> {
+  const r = await fetch(`${API_BASE}/ai/rag/index`, {
+    method: 'POST',
+    headers: headers(apiKey, tenantId),
+    body: JSON.stringify({ document_id: documentId }),
+  })
+  if (!r.ok) throw new Error(await parseError(r))
+  return r.json()
+}

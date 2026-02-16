@@ -29,6 +29,7 @@ dependencies = [
     "prometheus-client>=0.20.0",
     "redis>=5.0.0",
     "python-multipart>=0.0.9",
+    "litellm>=1.50.0",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +46,7 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
+addopts = "--cov=app --cov-report=term-missing --cov-branch"
 
 [tool.coverage.run]
 source = ["app"]

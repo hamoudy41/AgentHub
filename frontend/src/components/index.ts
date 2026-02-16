@@ -15,4 +15,5 @@ export {
   DocumentsTab,
   HealthTab,
   NotaryTab,
+  RAGTab,
 } from './tabs'
