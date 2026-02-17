@@ -125,7 +125,8 @@ jobs:
   frontend-format:
     name: Frontend (auto-format)
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    needs: [backend-format]
+    if: always() && github.event_name == 'pull_request' && (needs.backend-format.result == 'success' || needs.backend-format.result == 'failure') && !cancelled()
     permissions:
       contents: write
     steps:
