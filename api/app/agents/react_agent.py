@@ -26,7 +26,7 @@ def _translate_math_intent(message: str) -> tuple[str, str] | None:
     numbers = re.findall(r"-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?", message)
     nums = [float(n.replace(",", "")) for n in numbers]
 
-    if len(nums) < 2:
+    if len(nums) < 1:
         return None
 
     if "average" in msg_lower or "mean" in msg_lower:

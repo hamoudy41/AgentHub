@@ -163,7 +163,49 @@ async def test_translate_math_intent_no_match():
     from app.agents.react_agent import _translate_math_intent
 
     assert _translate_math_intent("how to learn python") is None
-    assert _translate_math_intent("average of 5") is None  # single number
+    assert _translate_math_intent("just 5") is None  # no math keywords
+
+
+@pytest.mark.asyncio
+async def test_translate_math_intent_single_number_average():
+    """_translate_math_intent handles average with single number."""
+    from app.agents.react_agent import _translate_math_intent
+
+    result = _translate_math_intent("average of 5")
+    assert result is not None
+    expr, intent = result
+    assert expr == "(5)/1"
+    assert intent == "average"
+
+    result = _translate_math_intent("mean of 42")
+    assert result is not None
+    expr, intent = result
+    assert expr == "(42)/1"
+    assert intent == "average"
+
+
+@pytest.mark.asyncio
+async def test_translate_math_intent_single_number_sum():
+    """_translate_math_intent handles sum with single number."""
+    from app.agents.react_agent import _translate_math_intent
+
+    result = _translate_math_intent("sum of 10")
+    assert result is not None
+    expr, intent = result
+    assert expr == "10"
+    assert intent == "sum"
+
+
+@pytest.mark.asyncio
+async def test_translate_math_intent_single_number_product():
+    """_translate_math_intent handles product with single number."""
+    from app.agents.react_agent import _translate_math_intent
+
+    result = _translate_math_intent("product of 7")
+    assert result is not None
+    expr, intent = result
+    assert expr == "7"
+    assert intent == "product"
 
 
 @pytest.mark.asyncio
