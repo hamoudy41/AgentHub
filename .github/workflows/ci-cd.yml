@@ -1,5 +1,7 @@
 name: CI/CD
 
+# Lint + test run on every push and PR targeting main (gate before merge).
+# Build + push run only on push to main.
 on:
   push:
     branches: [main]
@@ -36,6 +38,14 @@ jobs:
 
       - name: Pytest (with coverage)
         run: pytest api/tests/ -v --cov=app --cov-report=term-missing --cov-branch --cov-fail-under=80
+
+  ci:
+    name: CI (lint + test gate)
+    runs-on: ubuntu-latest
+    needs: [backend-lint-test, frontend-lint-test]
+    if: github.event_name == 'pull_request'
+    steps:
+      - run: echo "All lint and test checks passed."
 
   backend-build-push:
     name: Backend (build + push)
