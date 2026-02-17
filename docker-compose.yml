@@ -33,8 +33,12 @@ services:
     volumes:
       - ./frontend:/app
       - frontend_node_modules:/app/node_modules
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      VITE_PROXY_TARGET: http://api:8000
+      # Use host.docker.internal so frontend reaches API via host's port 8000
+      # (avoids ENOTFOUND when api container restarts or is temporarily down)
+      VITE_PROXY_TARGET: http://host.docker.internal:8000
     command: sh -c "npm ci && npm run dev -- --host 0.0.0.0"
     depends_on:
       api:
@@ -72,6 +76,9 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    environment:
+      # Keep model loaded indefinitely to avoid 10-30s cold start on first request
+      OLLAMA_KEEP_ALIVE: "-1"
 
   db:
     image: postgres:16-alpine

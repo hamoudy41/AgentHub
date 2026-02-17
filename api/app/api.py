@@ -34,6 +34,8 @@ from .core.redis import cache_key, check_rate_limit, close_redis, get_cached, pi
 from .db import get_db_session, get_engine
 from .models import Base, Document
 from .schemas import (
+    AgentChatRequest,
+    AgentChatResponse,
     AskRequest,
     AskResponse,
     ClassifyRequest,
@@ -58,6 +60,7 @@ from .services_ai_flows import (
 )
 from .services_llm import llm_client
 from .services_rag import run_rag_query_flow, run_rag_query_flow_stream
+from .agents import run_agent, run_agent_stream
 
 
 logger = get_logger(__name__)
@@ -532,6 +535,72 @@ def create_app() -> FastAPI:
         return RAGIndexResponse(
             document_id=payload.document_id,
             chunks_indexed=chunks_indexed,
+        )
+
+    @api_router.post(
+        "/ai/agents/chat",
+        response_model=AgentChatResponse,
+        status_code=status.HTTP_200_OK,
+    )
+    async def agent_chat(
+        payload: AgentChatRequest,
+        tenant_id: str = Depends(get_tenant_id),
+        db: AsyncSession = Depends(get_db_session),
+    ) -> AgentChatResponse:
+        async def get_document(doc_id: str, t_id: str) -> dict | None:
+            result = await db.execute(
+                select(Document).where(
+                    Document.id == doc_id,
+                    Document.tenant_id == t_id,
+                )
+            )
+            doc = result.scalar_one_or_none()
+            if not doc:
+                return None
+            return {"id": doc.id, "title": doc.title, "text": doc.text}
+
+        result = await run_agent(
+            tenant_id=tenant_id,
+            message=payload.message,
+            get_document_fn=get_document,
+        )
+        return AgentChatResponse(**result)
+
+    @api_router.post("/ai/agents/chat/stream", status_code=status.HTTP_200_OK)
+    async def agent_chat_stream(
+        payload: AgentChatRequest,
+        tenant_id: str = Depends(get_tenant_id),
+        db: AsyncSession = Depends(get_db_session),
+    ):
+        async def get_document(doc_id: str, t_id: str) -> dict | None:
+            result = await db.execute(
+                select(Document).where(
+                    Document.id == doc_id,
+                    Document.tenant_id == t_id,
+                )
+            )
+            doc = result.scalar_one_or_none()
+            if not doc:
+                return None
+            return {"id": doc.id, "title": doc.title, "text": doc.text}
+
+        async def generate():
+            try:
+                async for chunk in run_agent_stream(
+                    tenant_id=tenant_id,
+                    message=payload.message,
+                    get_document_fn=get_document,
+                ):
+                    yield f"data: {orjson.dumps({'token': chunk}).decode()}\n\n".encode()
+            except Exception as e:
+                yield f"data: {orjson.dumps({'error': str(e), 'done': True}).decode()}\n\n".encode()
+                return
+            yield f"data: {orjson.dumps({'done': True}).decode()}\n\n".encode()
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
     app.include_router(api_router)

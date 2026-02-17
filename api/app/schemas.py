@@ -91,6 +91,16 @@ class RAGIndexResponse(BaseModel):
     status: Literal["indexed"] = "indexed"
 
 
+class AgentChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+
+
+class AgentChatResponse(BaseModel):
+    answer: str
+    tools_used: list[str] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
 class HealthStatus(BaseModel):
     status: Literal["ok"] = "ok"
     environment: str

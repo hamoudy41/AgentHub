@@ -74,6 +74,7 @@ class LLMClient:
             "model": self._settings.llm_model,
             "prompt": prompt,
             "stream": False,
+            "options": {"num_predict": 512},
         }
         if system_prompt:
             payload["system"] = system_prompt
