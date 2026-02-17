@@ -253,7 +253,9 @@ async def run_agent(
                 answer = f"The {label} is {result}."
             return {"answer": answer, "tools_used": ["calculator_tool"]}
         except Exception as e:
-            logger.warning("react_agent.math_intent_failed", error=str(e), expression=expr, intent=intent)
+            logger.warning(
+                "react_agent.math_intent_failed", error=str(e), expression=expr, intent=intent
+            )
             pass  # Fall through to agent
 
     graph = agent_graph(tenant_id, get_document_fn)
@@ -327,7 +329,9 @@ async def run_agent_stream(
             yield answer
             return
         except Exception as e:
-            logger.warning("react_agent.math_intent_failed", error=str(e), expression=expr, intent=intent)
+            logger.warning(
+                "react_agent.math_intent_failed", error=str(e), expression=expr, intent=intent
+            )
             pass  # Fall through to agent
 
     graph = agent_graph(tenant_id, get_document_fn)
