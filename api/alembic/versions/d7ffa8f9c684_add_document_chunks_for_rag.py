@@ -6,10 +6,13 @@ Create Date: 2026-02-16 12:06:43.593424
 
 """
 
+import logging
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+
+logger = logging.getLogger("alembic.runtime.migration")
 
 
 # revision identifiers, used by Alembic.
@@ -108,6 +111,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema. Only drops tables that this migration created."""
+    logger.info("Starting migration downgrade for d7ffa8f9c684")
     conn = op.get_bind()
     inspector = sa.inspect(conn)
     tables = inspector.get_table_names()
@@ -116,18 +120,39 @@ def downgrade() -> None:
     if _TRACKING_TABLE in tables:
         result = conn.execute(sa.text(f"SELECT table_name FROM {_TRACKING_TABLE}"))
         created = [row[0] for row in result]
+        logger.info(f"Found tracking table with {len(created)} created table(s): {created}")
+    else:
+        logger.warning(f"Tracking table '{_TRACKING_TABLE}' not found - no tables will be dropped")
 
     for table_name in ["documents", "document_chunks", "ai_call_audit"]:
         if table_name in created and table_name in tables:
-            if table_name == "documents":
-                op.drop_index(op.f("ix_documents_tenant_id"), table_name="documents")
-            elif table_name == "document_chunks":
-                op.drop_index(op.f("ix_document_chunks_tenant_id"), table_name="document_chunks")
-                op.drop_index(op.f("ix_document_chunks_document_id"), table_name="document_chunks")
-            elif table_name == "ai_call_audit":
-                op.drop_index(op.f("ix_ai_call_audit_tenant_id"), table_name="ai_call_audit")
-                op.drop_index(op.f("ix_ai_call_audit_flow_name"), table_name="ai_call_audit")
-            op.drop_table(table_name)
+            try:
+                logger.info(f"Dropping table '{table_name}' and its indexes")
+                if table_name == "documents":
+                    op.drop_index(op.f("ix_documents_tenant_id"), table_name="documents")
+                elif table_name == "document_chunks":
+                    op.drop_index(op.f("ix_document_chunks_tenant_id"), table_name="document_chunks")
+                    op.drop_index(op.f("ix_document_chunks_document_id"), table_name="document_chunks")
+                elif table_name == "ai_call_audit":
+                    op.drop_index(op.f("ix_ai_call_audit_tenant_id"), table_name="ai_call_audit")
+                    op.drop_index(op.f("ix_ai_call_audit_flow_name"), table_name="ai_call_audit")
+                op.drop_table(table_name)
+                logger.info(f"Successfully dropped table '{table_name}'")
+            except Exception as e:
+                logger.error(f"Failed to drop table '{table_name}': {e}")
+                raise
+        elif table_name not in created:
+            logger.warning(f"Skipping table '{table_name}' - not created by this migration")
+        elif table_name not in tables:
+            logger.warning(f"Skipping table '{table_name}' - table does not exist in database")
 
     if _TRACKING_TABLE in tables:
-        op.drop_table(_TRACKING_TABLE)
+        try:
+            logger.info(f"Dropping tracking table '{_TRACKING_TABLE}'")
+            op.drop_table(_TRACKING_TABLE)
+            logger.info(f"Successfully dropped tracking table '{_TRACKING_TABLE}'")
+        except Exception as e:
+            logger.error(f"Failed to drop tracking table '{_TRACKING_TABLE}': {e}")
+            raise
+    
+    logger.info("Migration downgrade for d7ffa8f9c684 completed successfully")
