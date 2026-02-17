@@ -13,12 +13,13 @@ from app.schemas import (
     NotarySummarizeRequest,
 )
 from app.services_ai_flows import (
+    AiFlowError,
     run_ask_flow,
     run_ask_flow_stream,
     run_classify_flow,
     run_notary_summarization_flow,
 )
-from app.services_llm import LLMError, LLMResult
+from app.services_llm import LLMError, LLMNotConfiguredError, LLMResult
 
 
 @pytest.fixture
@@ -216,3 +217,92 @@ async def test_ask_stream_fallback_on_exception(db_session):
         ):
             tokens.append(t)
         assert "".join(tokens) == "Answer unavailable (model error)."
+
+
+@pytest.mark.asyncio
+async def test_notary_flow_raises_when_llm_not_configured(db_session):
+    """run_notary_summarization_flow raises AiFlowError when LLM not configured."""
+    with patch("app.services_ai_flows.llm_client") as mock_llm:
+        mock_llm.generate_notary_summary = AsyncMock(
+            side_effect=LLMNotConfiguredError("LLM not configured.")
+        )
+        with pytest.raises(AiFlowError, match="LLM not configured"):
+            await run_notary_summarization_flow(
+                tenant_id="t1",
+                db=db_session,
+                payload=NotarySummarizeRequest(text="Some text.", language="en"),
+            )
+
+
+@pytest.mark.asyncio
+async def test_classify_raises_when_candidate_labels_empty(db_session):
+    """run_classify_flow raises AiFlowError when candidate_labels is empty."""
+    with pytest.raises(AiFlowError, match="candidate_labels cannot be empty"):
+        await run_classify_flow(
+            tenant_id="t1",
+            db=db_session,
+            payload=ClassifyRequest(text="X", candidate_labels=[]),
+        )
+
+
+@pytest.mark.asyncio
+async def test_ask_flow_raises_when_llm_not_configured(db_session):
+    """run_ask_flow raises AiFlowError when LLM not configured."""
+    with patch("app.services_ai_flows.llm_client") as mock_llm:
+        mock_llm.complete = AsyncMock(side_effect=LLMNotConfiguredError("LLM not configured."))
+        with pytest.raises(AiFlowError, match="LLM not configured"):
+            await run_ask_flow(
+                tenant_id="t1",
+                db=db_session,
+                payload=AskRequest(question="Q?", context="C"),
+            )
+
+
+@pytest.mark.asyncio
+async def test_ask_stream_raises_when_llm_not_configured(db_session):
+    """run_ask_flow_stream raises AiFlowError when LLM not configured."""
+    with patch("app.services_ai_flows.llm_client") as mock_llm:
+        mock_llm.is_configured.return_value = False
+        with pytest.raises(AiFlowError, match="LLM not configured"):
+            async for _ in run_ask_flow_stream(
+                tenant_id="t1",
+                db=db_session,
+                payload=AskRequest(question="Q?", context="C"),
+            ):
+                pass
+
+
+@pytest.mark.asyncio
+async def test_classify_audit_commit_failure_sets_metadata(db_session):
+    """When db.commit fails after audit add, metadata reflects audit_persisted=False."""
+    with (
+        patch("app.services_ai_flows.llm_client") as mock_llm,
+        patch.object(db_session, "commit", new_callable=AsyncMock, side_effect=RuntimeError("DB")),
+    ):
+        mock_llm.complete = AsyncMock(
+            return_value=LLMResult(raw_text="invoice", model="mock", latency_ms=1.0),
+        )
+        out = await run_classify_flow(
+            tenant_id="t1",
+            db=db_session,
+            payload=ClassifyRequest(text="X", candidate_labels=["invoice", "letter"]),
+        )
+        assert out.metadata.get("audit_persisted") is False
+
+
+@pytest.mark.asyncio
+async def test_ask_audit_commit_failure_sets_metadata(db_session):
+    """When db.commit fails after audit add in ask flow, metadata reflects audit_persisted=False."""
+    with (
+        patch("app.services_ai_flows.llm_client") as mock_llm,
+        patch.object(db_session, "commit", new_callable=AsyncMock, side_effect=RuntimeError("DB")),
+    ):
+        mock_llm.complete = AsyncMock(
+            return_value=LLMResult(raw_text="Answer.", model="mock", latency_ms=1.0),
+        )
+        out = await run_ask_flow(
+            tenant_id="t1",
+            db=db_session,
+            payload=AskRequest(question="Q?", context="C"),
+        )
+        assert out.metadata.get("audit_persisted") is False
