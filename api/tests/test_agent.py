@@ -494,3 +494,75 @@ async def test_run_agent_stream_yields_dict_content():
         ):
             tokens.append(t)
         assert "".join(tokens) == "Hello world."
+
+
+@pytest.mark.asyncio
+async def test_run_agent_logs_exception_when_calculator_fails_for_math_intent():
+    """run_agent logs exception when calculator fails during math intent translation."""
+    mock_graph = AsyncMock()
+    mock_graph.ainvoke = AsyncMock(
+        return_value={
+            "messages": [
+                AIMessage(content="I'll help with that.", tool_calls=[]),
+            ]
+        }
+    )
+
+    with (
+        patch("app.agents.react_agent.calculator_tool") as mock_calc,
+        patch("app.agents.react_agent.agent_graph") as mock_agent_graph,
+        patch("app.agents.react_agent.logger") as mock_logger,
+    ):
+        mock_calc.invoke.side_effect = RuntimeError("Calculator service unavailable")
+        mock_agent_graph.return_value = mock_graph
+
+        result = await run_agent(
+            tenant_id="t1",
+            message="average of 1, 2, 3, 4",
+            get_document_fn=AsyncMock(return_value=None),
+        )
+        # Verify exception was logged
+        mock_logger.warning.assert_called_once()
+        call_args = mock_logger.warning.call_args
+        assert call_args[0][0] == "react_agent.math_intent_failed"
+        assert "Calculator service unavailable" in call_args[1]["error"]
+        assert call_args[1]["intent"] == "average"
+        # Verify agent was called as fallback
+        assert result["answer"] == "I'll help with that."
+
+
+@pytest.mark.asyncio
+async def test_run_agent_stream_logs_exception_when_calculator_fails_for_math_intent():
+    """run_agent_stream logs exception when calculator fails during math intent translation."""
+
+    async def mock_astream(*args, stream_mode=None, **kwargs):
+        yield ({"content": "Calculated "}, {})
+        yield ({"content": "result."}, {})
+
+    mock_graph = AsyncMock()
+    mock_graph.astream = mock_astream
+
+    with (
+        patch("app.agents.react_agent.calculator_tool") as mock_calc,
+        patch("app.agents.react_agent.agent_graph") as mock_agent_graph,
+        patch("app.agents.react_agent.logger") as mock_logger,
+    ):
+        mock_calc.invoke.side_effect = RuntimeError("Calculator service unavailable")
+        mock_agent_graph.return_value = mock_graph
+
+        tokens = []
+        async for t in run_agent_stream(
+            tenant_id="t1",
+            message="sum of 10, 20, 30",
+            get_document_fn=AsyncMock(return_value=None),
+        ):
+            tokens.append(t)
+
+        # Verify exception was logged
+        mock_logger.warning.assert_called_once()
+        call_args = mock_logger.warning.call_args
+        assert call_args[0][0] == "react_agent.math_intent_failed"
+        assert "Calculator service unavailable" in call_args[1]["error"]
+        assert call_args[1]["intent"] == "sum"
+        # Verify agent stream was called as fallback
+        assert "".join(tokens) == "Calculated result."
