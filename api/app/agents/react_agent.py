@@ -11,7 +11,11 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
+from app.core.logging import get_logger
+
 from .tools import BASE_TOOLS, calculator_tool, create_document_lookup_tool, search_tool
+
+logger = get_logger(__name__)
 
 
 def _translate_math_intent(message: str) -> tuple[str, str] | None:
@@ -248,7 +252,8 @@ async def run_agent(
                 )
                 answer = f"The {label} is {result}."
             return {"answer": answer, "tools_used": ["calculator_tool"]}
-        except Exception:
+        except Exception as e:
+            logger.warning("react_agent.math_intent_failed", error=str(e), expression=expr, intent=intent)
             pass  # Fall through to agent
 
     graph = agent_graph(tenant_id, get_document_fn)
@@ -321,7 +326,8 @@ async def run_agent_stream(
                 answer = f"The {label} is {result}."
             yield answer
             return
-        except Exception:
+        except Exception as e:
+            logger.warning("react_agent.math_intent_failed", error=str(e), expression=expr, intent=intent)
             pass  # Fall through to agent
 
     graph = agent_graph(tenant_id, get_document_fn)
