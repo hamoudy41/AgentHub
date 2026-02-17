@@ -257,12 +257,21 @@ export async function* agentChatStream(
     body: JSON.stringify({ message }),
   })
   if (!r.ok) throw new Error(await parseError(r))
-  
+
   if (!r.body) {
-    throw new Error('Response body is missing from server')
+    throw new Error('Response body is null or undefined. The server may not be streaming correctly.')
   }
-  
-  const reader = r.body.getReader()
+  if (typeof r.body.getReader !== 'function') {
+    throw new Error('Response body is not a valid ReadableStream. Cannot read streaming data.')
+  }
+  let reader: ReadableStreamDefaultReader<Uint8Array>
+  try {
+    reader = r.body.getReader()
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    throw new Error(`Failed to get stream reader: ${message}`)
+  }
+
   const decoder = new TextDecoder()
   let buffer = ''
   
@@ -308,6 +317,10 @@ export async function* agentChatStream(
       }
     }
   } finally {
-    reader.releaseLock()
+    try {
+      reader.releaseLock()
+    } catch {
+      /* reader may already be released or closed */
+    }
   }
 }

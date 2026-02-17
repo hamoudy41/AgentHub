@@ -477,13 +477,35 @@ describe('api', () => {
     expect(chunks).toEqual([{ token: 'Hello' }, { token: ' world' }, { done: true }])
   })
 
-  it('agentChatStream throws when response body is missing', async () => {
+  it('agentChatStream throws when response body is null', async () => {
     const mockFetch = vi.mocked(fetch)
-    mockFetch.mockResolvedValueOnce(
-      new Response(null, { status: 200 })
-    )
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }))
     const gen = agentChatStream('Hi')
-    await expect(gen.next()).rejects.toThrow('Response body is missing from server')
+    await expect(gen.next()).rejects.toThrow(/Response body is null or undefined/)
+  })
+
+  it('agentChatStream throws when body does not have getReader method', async () => {
+    const mockFetch = vi.mocked(fetch)
+    const response = {
+      ok: true,
+      body: { notAStream: true },
+    } as unknown as Response
+    mockFetch.mockResolvedValueOnce(response)
+    const gen = agentChatStream('Hi')
+    await expect(gen.next()).rejects.toThrow(/not a valid ReadableStream/)
+  })
+
+  it('agentChatStream throws when getReader fails', async () => {
+    const mockFetch = vi.mocked(fetch)
+    const mockBody = {
+      getReader: () => {
+        throw new Error('Reader is locked')
+      },
+    }
+    const response = { ok: true, body: mockBody } as unknown as Response
+    mockFetch.mockResolvedValueOnce(response)
+    const gen = agentChatStream('Hi')
+    await expect(gen.next()).rejects.toThrow(/Failed to get stream reader: Reader is locked/)
   })
 
   it('agentChatStream handles read errors gracefully', async () => {
@@ -495,7 +517,7 @@ describe('api', () => {
     const mockFetch = vi.mocked(fetch)
     mockFetch.mockResolvedValueOnce(new Response(stream, { status: 200 }))
     const gen = agentChatStream('Hi')
-    await expect(gen.next()).rejects.toThrow('Failed to read from stream')
+    await expect(gen.next()).rejects.toThrow(/Failed to read from stream/)
   })
 
   it('agentChatStream skips invalid JSON chunks', async () => {
