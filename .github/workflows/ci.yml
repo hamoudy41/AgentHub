@@ -38,7 +38,11 @@ jobs:
           else
             git commit -m "style: apply ruff format (auto)"
             git fetch origin ${{ github.base_ref }}
-            git rebase origin/${{ github.base_ref }}
+            if ! git rebase origin/${{ github.base_ref }}; then
+              echo "::error::Rebase failed. Please rebase your PR manually."
+              git rebase --abort
+              exit 1
+            fi
             git push --force-with-lease
             echo "Formatting applied. CI will re-run."
             exit 1
@@ -105,7 +109,11 @@ jobs:
           else
             git commit -m "style: apply eslint --fix (auto)"
             git fetch origin ${{ github.base_ref }}
-            git rebase origin/${{ github.base_ref }}
+            if ! git rebase origin/${{ github.base_ref }}; then
+              echo "::error::Rebase failed. Please rebase your PR manually."
+              git rebase --abort
+              exit 1
+            fi
             git push --force-with-lease
             echo "Formatting applied. CI will re-run."
             exit 1
