@@ -301,7 +301,7 @@ export async function* agentChatStream(
             const parsed = JSON.parse(data) as { token?: string; done?: boolean; error?: string }
             yield parsed
           } catch (error) {
-            console.warn('Skipping invalid JSON chunk:', data, error)
+            console.warn('agentChatStream: Skipping invalid JSON chunk:', data, error)
             continue
           }
         }
