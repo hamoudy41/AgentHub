@@ -59,7 +59,7 @@ def _safe_eval(expr: str) -> float | int:
 
 @tool
 def calculator_tool(expression: str) -> str:
-    """Evaluate a mathematical expression. Use for arithmetic like 2+3*4, 100/5, 2**10."""
+    """Evaluate a mathematical expression. Use for arithmetic like 2+3*4, 100/5, 2**10. For average of numbers, use (a+b+c)/n, e.g. (1+2+5+6)/4."""
     try:
         result = _safe_eval(expression.strip())
         return str(result)

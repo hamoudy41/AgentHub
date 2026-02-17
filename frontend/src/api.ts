@@ -225,3 +225,63 @@ export async function ragIndex(
   if (!r.ok) throw new Error(await parseError(r))
   return r.json()
 }
+
+export interface AgentChatResponse {
+  answer: string
+  tools_used: string[]
+  error?: string
+}
+
+export async function agentChat(
+  message: string,
+  apiKey?: string,
+  tenantId?: string
+): Promise<AgentChatResponse> {
+  const r = await fetch(`${API_BASE}/ai/agents/chat`, {
+    method: 'POST',
+    headers: headers(apiKey, tenantId),
+    body: JSON.stringify({ message }),
+  })
+  if (!r.ok) throw new Error(await parseError(r))
+  return r.json()
+}
+
+export async function* agentChatStream(
+  message: string,
+  apiKey?: string,
+  tenantId?: string
+): AsyncGenerator<{ token?: string; done?: boolean; error?: string }> {
+  const r = await fetch(`${API_BASE}/ai/agents/chat/stream`, {
+    method: 'POST',
+    headers: headers(apiKey, tenantId),
+    body: JSON.stringify({ message }),
+  })
+  if (!r.ok) throw new Error(await parseError(r))
+  const reader = r.body?.getReader()
+  if (!reader) throw new Error('No response body')
+  const decoder = new TextDecoder()
+  let buffer = ''
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6)
+          if (data === '[DONE]') continue
+          try {
+            const parsed = JSON.parse(data) as { token?: string; done?: boolean; error?: string }
+            yield parsed
+          } catch {
+            /* skip invalid JSON */
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}

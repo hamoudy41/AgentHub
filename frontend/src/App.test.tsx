@@ -32,6 +32,9 @@ describe('App', () => {
     await user.click(screen.getByTestId('tab-rag'))
     expect(screen.getByRole('heading', { name: /rag/i })).toBeInTheDocument()
 
+    await user.click(screen.getByTestId('tab-agents'))
+    expect(screen.getByRole('heading', { name: /agent playground/i })).toBeInTheDocument()
+
     await user.click(screen.getByTestId('tab-health'))
     expect(screen.getByRole('heading', { name: /health/i })).toBeInTheDocument()
   })

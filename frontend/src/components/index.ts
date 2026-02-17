@@ -10,6 +10,7 @@ export {
   NotaryResult,
 } from './ResultPreview'
 export {
+  AgentTab,
   AskTab,
   ClassifyTab,
   DocumentsTab,

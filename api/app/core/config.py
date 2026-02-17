@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # RAG: embedding model. "mock" for tests (returns deterministic vectors).
     embedding_model: str = "mock"
     embedding_dimension: int = 384
+    # Search: "duckduckgo" (free, no key) or "tavily" (better quality, requires TAVILY_API_KEY).
+    search_provider: Literal["duckduckgo", "tavily"] = "duckduckgo"
+    tavily_api_key: Optional[str] = None
 
     @model_validator(mode="after")
     def require_api_key_in_prod(self: "Settings") -> "Settings":

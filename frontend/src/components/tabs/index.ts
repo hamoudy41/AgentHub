@@ -1,3 +1,4 @@
+export { AgentTab } from './AgentTab'
 export { AskTab } from './AskTab'
 export { ClassifyTab } from './ClassifyTab'
 export { DocumentsTab } from './DocumentsTab'

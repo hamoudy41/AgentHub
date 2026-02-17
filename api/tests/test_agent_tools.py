@@ -56,10 +56,46 @@ def test_calculator_tool_modulo():
     assert result == "1"
 
 
-def test_search_tool_returns_mock_result():
-    """Search tool returns mock placeholder."""
+def test_search_tool_returns_results():
+    """Search tool returns web search results or error message."""
     result = search_tool.invoke({"query": "weather Paris"})
-    assert "Mock search" in result or "Paris" in result
+    assert isinstance(result, str)
+    assert len(result) > 0
+    # Either real results, "No web results", or "Search failed"
+    assert (
+        "Paris" in result
+        or "No web results" in result
+        or "Search failed" in result
+        or "Source:" in result
+    )
+
+
+def test_search_tool_uses_tavily_when_configured():
+    """Search tool uses Tavily when SEARCH_PROVIDER=tavily and TAVILY_API_KEY set."""
+    from unittest.mock import patch
+
+    mock_tavily_result = {
+        "results": [
+            {"title": "Test Result", "content": "Test content here.", "url": "https://example.com"},
+        ],
+    }
+
+    with (
+        patch("app.core.config.get_settings") as mock_settings,
+        patch("langchain_tavily.TavilySearch") as mock_tavily_class,
+    ):
+        mock_settings.return_value.search_provider = "tavily"
+        mock_settings.return_value.tavily_api_key = "tvly-test-key"
+        mock_tool = mock_tavily_class.return_value
+        mock_tool.invoke.return_value = mock_tavily_result
+
+        result = search_tool.invoke({"query": "test query"})
+
+        assert "Test Result" in result
+        assert "Test content here" in result
+        assert "Source: https://example.com" in result
+        mock_tavily_class.assert_called_once_with(max_results=5, topic="general")
+        mock_tool.invoke.assert_called_once_with({"query": "test query"})
 
 
 @pytest.mark.asyncio

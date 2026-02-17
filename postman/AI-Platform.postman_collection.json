@@ -1113,6 +1113,65 @@
           ]
         }
       ]
+    },
+    {
+      "name": "AI – Agents",
+      "item": [
+        {
+          "name": "Agent chat",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has answer and tools_used', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('answer');",
+                  "    pm.expect(jsonData).to.have.property('tools_used');",
+                  "    pm.expect(jsonData.tools_used).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"What is 6 * 7?\"\n}"
+            },
+            "url": "{{base_url}}/api/v1/ai/agents/chat",
+            "description": "Chat with the ReAct agent. Uses tools: calculator, search, document lookup."
+          },
+          "response": []
+        },
+        {
+          "name": "Agent chat (stream)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-Tenant-ID", "value": "{{tenant_id}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"What is 6 * 7?\"\n}"
+            },
+            "url": "{{base_url}}/api/v1/ai/agents/chat/stream",
+            "description": "Stream agent response via SSE. Events: data: {\"token\": \"...\"} or data: {\"done\": true} or data: {\"error\": \"...\", \"done\": true}."
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

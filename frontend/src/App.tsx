@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  AgentTab,
   AskTab,
   ClassifyTab,
   DocumentsTab,
@@ -20,6 +21,7 @@ export default function App() {
       {tab === 'notary' && <NotaryTab />}
       {tab === 'ask' && <AskTab />}
       {tab === 'rag' && <RAGTab />}
+      {tab === 'agents' && <AgentTab />}
     </Layout>
   )
 }

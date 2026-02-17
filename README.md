@@ -15,7 +15,7 @@ uvicorn app.main:app --reload
 cd frontend && npm install && npm run dev
 ```
 
-Configure `LLM_PROVIDER` and `LLM_BASE_URL` in `.env`. Optional `API_KEY` for `X-API-Key` auth.
+Configure `LLM_PROVIDER` and `LLM_BASE_URL` in `.env`. Optional `API_KEY` for `X-API-Key` auth. For better agent search: set `SEARCH_PROVIDER=tavily` and `TAVILY_API_KEY` (get key at [tavily.com](https://app.tavily.com/sign-in)).
 
 ## Deploy
 
@@ -42,6 +42,8 @@ Compose is for development: api (uvicorn --reload), frontend (Vite dev), Postgre
 | POST | `/api/v1/ai/classify` | `text`, optional `candidate_labels` |
 | POST | `/api/v1/ai/ask` | `question`, `context` |
 | POST | `/api/v1/ai/ask/stream` | `question`, `context` (SSE streaming) |
+| POST | `/api/v1/ai/agents/chat` | `message` (1–4000 chars) |
+| POST | `/api/v1/ai/agents/chat/stream` | `message` (SSE streaming) |
 | POST | `/api/v1/ai/rag/query` | `query`, optional `document_ids`, `top_k` |
 | POST | `/api/v1/ai/rag/query/stream` | `query` (SSE streaming) |
 | POST | `/api/v1/ai/rag/index` | `document_id` |

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  agentChat,
+  agentChatStream,
   ask,
   classify,
   createDocument,
@@ -432,5 +434,46 @@ describe('api', () => {
       })
     )
     expect(result.chunks_indexed).toBe(3)
+  })
+
+  it('agentChat sends message and returns answer', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          answer: '42',
+          tools_used: ['calculator'],
+        }),
+        { status: 200 }
+      )
+    )
+    const result = await agentChat('What is 6 * 7?')
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/ai/agents/chat'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ message: 'What is 6 * 7?' }),
+      })
+    )
+    expect(result.answer).toBe('42')
+    expect(result.tools_used).toEqual(['calculator'])
+  })
+
+  it('agentChatStream yields tokens from SSE', async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode('data: {"token":"Hello"}\n\ndata: {"token":" world"}\n\ndata: {"done":true}\n\n')
+        )
+        controller.close()
+      },
+    })
+    const mockFetch = vi.mocked(fetch)
+    mockFetch.mockResolvedValueOnce(new Response(stream, { status: 200 }))
+    const chunks: Array<{ token?: string; done?: boolean }> = []
+    for await (const c of agentChatStream('Hi')) {
+      chunks.push(c)
+    }
+    expect(chunks).toEqual([{ token: 'Hello' }, { token: ' world' }, { done: true }])
   })
 })
