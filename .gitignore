@@ -27,6 +27,8 @@ app.db
 .coverage
 htmlcov/
 .tox/
+coverage/
+frontend/coverage/
 
 # Linting / typing
 .ruff_cache/
