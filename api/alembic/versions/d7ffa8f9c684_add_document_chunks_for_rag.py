@@ -154,5 +154,5 @@ def downgrade() -> None:
         except Exception as e:
             logger.error(f"Failed to drop tracking table '{_TRACKING_TABLE}': {e}")
             raise
-    
+
     logger.info("Migration downgrade for d7ffa8f9c684 completed successfully")
