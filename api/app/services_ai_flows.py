@@ -45,7 +45,7 @@ async def run_notary_summarization_flow(
         document = result.scalar_one_or_none()
         if document:
             text = document.text
-    
+
     # Sanitize input for security
     try:
         text = sanitize_user_input(
@@ -177,7 +177,7 @@ async def run_classify_flow(
 ) -> ClassifyResponse:
     if not payload.candidate_labels:
         raise AiFlowError("candidate_labels cannot be empty")
-    
+
     # Sanitize user input
     try:
         text = sanitize_user_input(
@@ -193,7 +193,7 @@ async def run_classify_flow(
             error=str(e),
         )
         raise AiFlowError(f"Input validation failed: {e}") from e
-    
+
     labels_str = ", ".join(payload.candidate_labels)
     prompt = (
         f"Classify the following text by document type. "

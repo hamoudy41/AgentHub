@@ -91,10 +91,7 @@ class LLMClient:
 
     def get_circuit_breaker_status(self) -> dict[str, Any]:
         """Get status of all circuit breakers for monitoring."""
-        return {
-            provider: cb.get_state()
-            for provider, cb in self._circuit_breakers.items()
-        }
+        return {provider: cb.get_state() for provider, cb in self._circuit_breakers.items()}
 
     async def complete(
         self,
@@ -108,11 +105,11 @@ class LLMClient:
             raise LLMNotConfiguredError(
                 "LLM not configured. Set LLM_PROVIDER and LLM_BASE_URL (e.g. ollama + http://localhost:11434)."
             )
-        
+
         # Get appropriate circuit breaker
         provider_key = "ollama" if self._settings.llm_provider == "ollama" else "openai"
         circuit_breaker = self._circuit_breakers[provider_key]
-        
+
         # Check circuit breaker
         can_execute, reason = circuit_breaker.can_execute()
         if not can_execute:
@@ -123,7 +120,7 @@ class LLMClient:
                 tenant_id=tenant_id,
             )
             raise CircuitBreakerOpen(reason or "Circuit breaker is open")
-        
+
         try:
             if self._settings.llm_provider == "ollama":
                 result = await self._complete_ollama(
@@ -133,11 +130,11 @@ class LLMClient:
                 result = await self._complete_openai(
                     prompt, system_prompt=system_prompt, timeout=timeout
                 )
-            
+
             # Record success
             circuit_breaker.record_success()
             return result
-            
+
         except (LLMError, httpx.RequestError, asyncio.TimeoutError) as e:
             # Record failure
             circuit_breaker.record_failure()
@@ -166,10 +163,10 @@ class LLMClient:
         }
         if system_prompt:
             payload["system"] = system_prompt
-        
+
         timeout_value = timeout if timeout is not None else self._settings.llm_timeout_seconds
         started = time.perf_counter()
-        
+
         try:
             async with httpx.AsyncClient(timeout=timeout_value) as client:
                 r = await client.post(url, json=payload)
@@ -191,7 +188,7 @@ class LLMClient:
             )
             LLM_ERRORS.labels(provider="ollama", error_type="request_error").inc()
             raise LLMProviderError("Ollama request failed", provider="ollama") from e
-            
+
         if r.status_code != 200:
             error_body = sanitize_for_logging(r.text, 500)
             logger.error(
@@ -204,25 +201,25 @@ class LLMClient:
                 status_code=r.status_code,
                 provider="ollama",
             )
-            
+
         data = r.json()
         text = data.get("response") or data.get("text") or ""
         if not isinstance(text, str) or not text.strip():
             logger.error("llm.ollama_empty_response", data_keys=list(data.keys()))
             raise LLMProviderError("Ollama returned empty response", provider="ollama")
-            
+
         latency_ms = (time.perf_counter() - started) * 1000
-        
+
         # Record metrics
         LLM_LATENCY.labels(provider="ollama", flow="generic").observe(latency_ms / 1000.0)
-        
+
         logger.info(
             "llm.ollama_success",
             latency_ms=round(latency_ms, 2),
             response_length=len(text),
             model=data.get("model", self._settings.llm_model),
         )
-        
+
         return LLMResult(
             raw_text=text.strip(),
             model=data.get("model", self._settings.llm_model),
@@ -256,10 +253,10 @@ class LLMClient:
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if self._settings.llm_api_key:
             headers["Authorization"] = f"Bearer {self._settings.llm_api_key}"
-        
+
         timeout_value = timeout if timeout is not None else self._settings.llm_timeout_seconds
         started = time.perf_counter()
-        
+
         try:
             async with httpx.AsyncClient(timeout=timeout_value) as client:
                 r = await client.post(url, json=payload, headers=headers)
@@ -281,7 +278,7 @@ class LLMClient:
             )
             LLM_ERRORS.labels(provider="openai", error_type="request_error").inc()
             raise LLMProviderError("OpenAI-compatible request failed", provider="openai") from e
-            
+
         if r.status_code != 200:
             error_body = sanitize_for_logging(r.text, 500)
             logger.error(
@@ -294,31 +291,31 @@ class LLMClient:
                 status_code=r.status_code,
                 provider="openai",
             )
-            
+
         data = r.json()
         choices = data.get("choices") or []
         if not choices:
             logger.error("llm.openai_no_choices", data_keys=list(data.keys()))
             raise LLMProviderError("OpenAI-compatible returned no choices", provider="openai")
-            
+
         msg = choices[0].get("message") or {}
         text = msg.get("content") or ""
         if not isinstance(text, str) or not text.strip():
             logger.error("llm.openai_empty_content", message_keys=list(msg.keys()))
             raise LLMProviderError("OpenAI-compatible returned empty content", provider="openai")
-            
+
         latency_ms = (time.perf_counter() - started) * 1000
-        
+
         # Record metrics
         LLM_LATENCY.labels(provider="openai", flow="generic").observe(latency_ms / 1000.0)
-        
+
         logger.info(
             "llm.openai_success",
             latency_ms=round(latency_ms, 2),
             response_length=len(text),
             model=data.get("model", self._settings.llm_model),
         )
-        
+
         return LLMResult(
             raw_text=text.strip(),
             model=data.get("model", self._settings.llm_model),

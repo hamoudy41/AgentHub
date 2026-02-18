@@ -58,6 +58,7 @@ class CircuitBreaker:
         """Update prometheus metrics for current state."""
         try:
             from .core.metrics import CIRCUIT_BREAKER_STATE
+
             CIRCUIT_BREAKER_STATE.labels(circuit_name=self.name).set(
                 _circuit_state_to_metric(self.state)
             )
@@ -73,7 +74,7 @@ class CircuitBreaker:
     def can_execute(self) -> tuple[bool, str | None]:
         """
         Check if request can be executed.
-        
+
         Returns:
             Tuple of (can_execute, reason)
         """
@@ -123,6 +124,7 @@ class CircuitBreaker:
         # Record failure in metrics
         try:
             from .core.metrics import CIRCUIT_BREAKER_FAILURES
+
             CIRCUIT_BREAKER_FAILURES.labels(circuit_name=self.name).inc()
         except ImportError:
             pass

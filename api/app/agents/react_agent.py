@@ -253,7 +253,7 @@ async def run_agent(
             "tools_used": [],
             "error": "input_validation_failed",
         }
-    
+
     translated = _translate_math_intent(message)
     if translated:
         expr, intent = translated
