@@ -22,6 +22,16 @@ class CircuitState(str, Enum):
     HALF_OPEN = "half_open"  # Testing if service recovered
 
 
+def _circuit_state_to_metric(state: CircuitState) -> int:
+    """Convert circuit state to metric value."""
+    if state == CircuitState.CLOSED:
+        return 0
+    elif state == CircuitState.HALF_OPEN:
+        return 1
+    else:  # OPEN
+        return 2
+
+
 @dataclass
 class CircuitBreakerConfig:
     """Configuration for circuit breaker."""
@@ -42,6 +52,17 @@ class CircuitBreaker:
         self.failure_count = 0
         self.success_count = 0
         self.last_failure_time: float | None = None
+        self._update_metrics()
+
+    def _update_metrics(self) -> None:
+        """Update prometheus metrics for current state."""
+        try:
+            from .core.metrics import CIRCUIT_BREAKER_STATE
+            CIRCUIT_BREAKER_STATE.labels(circuit_name=self.name).set(
+                _circuit_state_to_metric(self.state)
+            )
+        except ImportError:
+            pass  # Metrics not available
 
     def _should_attempt_reset(self) -> bool:
         """Check if enough time has passed to attempt recovery."""
@@ -68,6 +89,7 @@ class CircuitBreaker:
                 )
                 self.state = CircuitState.HALF_OPEN
                 self.success_count = 0
+                self._update_metrics()
                 return True, None
             return False, f"Circuit {self.name} is OPEN"
 
@@ -88,6 +110,7 @@ class CircuitBreaker:
                 self.failure_count = 0
                 self.success_count = 0
                 self.last_failure_time = None
+                self._update_metrics()
         elif self.state == CircuitState.CLOSED:
             # Reset failure count on success in closed state
             if self.failure_count > 0:
@@ -97,6 +120,13 @@ class CircuitBreaker:
         """Record a failed call."""
         self.last_failure_time = time.time()
 
+        # Record failure in metrics
+        try:
+            from .core.metrics import CIRCUIT_BREAKER_FAILURES
+            CIRCUIT_BREAKER_FAILURES.labels(circuit_name=self.name).inc()
+        except ImportError:
+            pass
+
         if self.state == CircuitState.HALF_OPEN:
             logger.warning(
                 "circuit_breaker.half_open_failure",
@@ -104,6 +134,7 @@ class CircuitBreaker:
             )
             self.state = CircuitState.OPEN
             self.failure_count = self.config.failure_threshold
+            self._update_metrics()
             return
 
         self.failure_count += 1
@@ -115,6 +146,7 @@ class CircuitBreaker:
                 threshold=self.config.failure_threshold,
             )
             self.state = CircuitState.OPEN
+            self._update_metrics()
 
     def get_state(self) -> dict[str, any]:
         """Get current circuit breaker state for monitoring."""

@@ -9,9 +9,15 @@ from typing import Any, AsyncIterator, Optional
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen
+from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen, CircuitState
 from .core.config import get_settings
 from .core.logging import get_logger
+from .core.metrics import (
+    LLM_LATENCY,
+    LLM_ERRORS,
+    CIRCUIT_BREAKER_STATE,
+    CIRCUIT_BREAKER_FAILURES,
+)
 from .security import sanitize_for_logging
 
 
@@ -174,6 +180,7 @@ class LLMClient:
                 timeout=timeout_value,
                 prompt_preview=sanitize_for_logging(prompt, 100),
             )
+            LLM_ERRORS.labels(provider="ollama", error_type="timeout").inc()
             raise LLMTimeoutError(f"Ollama request timed out after {timeout_value}s") from e
         except httpx.RequestError as e:
             logger.error(
@@ -182,6 +189,7 @@ class LLMClient:
                 error_type=type(e).__name__,
                 prompt_preview=sanitize_for_logging(prompt, 100),
             )
+            LLM_ERRORS.labels(provider="ollama", error_type="request_error").inc()
             raise LLMProviderError("Ollama request failed", provider="ollama") from e
             
         if r.status_code != 200:
@@ -204,6 +212,9 @@ class LLMClient:
             raise LLMProviderError("Ollama returned empty response", provider="ollama")
             
         latency_ms = (time.perf_counter() - started) * 1000
+        
+        # Record metrics
+        LLM_LATENCY.labels(provider="ollama", flow="generic").observe(latency_ms / 1000.0)
         
         logger.info(
             "llm.ollama_success",
