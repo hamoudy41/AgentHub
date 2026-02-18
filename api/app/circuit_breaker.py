@@ -5,13 +5,11 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, TypeVar
+from typing import Any
 
 from .core.logging import get_logger
 
 logger = get_logger(__name__)
-
-T = TypeVar("T")
 
 
 class CircuitState(str, Enum):

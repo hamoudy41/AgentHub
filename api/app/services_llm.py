@@ -9,15 +9,10 @@ from typing import Any, AsyncIterator, Optional
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen, CircuitState
+from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpen
 from .core.config import get_settings
 from .core.logging import get_logger
-from .core.metrics import (
-    LLM_LATENCY,
-    LLM_ERRORS,
-    CIRCUIT_BREAKER_STATE,
-    CIRCUIT_BREAKER_FAILURES,
-)
+from .core.metrics import LLM_LATENCY, LLM_ERRORS
 from .security import sanitize_for_logging
 
 
@@ -135,7 +130,7 @@ class LLMClient:
             circuit_breaker.record_success()
             return result
 
-        except (LLMError, httpx.RequestError, asyncio.TimeoutError) as e:
+        except (LLMError, httpx.RequestError, asyncio.TimeoutError):
             # Record failure
             circuit_breaker.record_failure()
             raise

@@ -18,7 +18,7 @@ from .schemas import (
     NotarySummarizeResponse,
     NotarySummary,
 )
-from .security import sanitize_user_input, sanitize_for_logging
+from .security import sanitize_user_input
 from .services_llm import LLMError, LLMNotConfiguredError, llm_client
 
 
