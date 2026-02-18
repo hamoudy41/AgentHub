@@ -89,7 +89,7 @@ class LLMClient:
     def is_configured(self) -> bool:
         return bool(self._settings.llm_base_url and self._settings.llm_provider)
 
-    def get_circuit_breaker_status(self) -> dict[str, any]:
+    def get_circuit_breaker_status(self) -> dict[str, Any]:
         """Get status of all circuit breakers for monitoring."""
         return {
             provider: cb.get_state()
@@ -270,6 +270,7 @@ class LLMClient:
                 timeout=timeout_value,
                 prompt_preview=sanitize_for_logging(prompt, 100),
             )
+            LLM_ERRORS.labels(provider="openai", error_type="timeout").inc()
             raise LLMTimeoutError(f"OpenAI request timed out after {timeout_value}s") from e
         except httpx.RequestError as e:
             logger.error(
@@ -278,6 +279,7 @@ class LLMClient:
                 error_type=type(e).__name__,
                 prompt_preview=sanitize_for_logging(prompt, 100),
             )
+            LLM_ERRORS.labels(provider="openai", error_type="request_error").inc()
             raise LLMProviderError("OpenAI-compatible request failed", provider="openai") from e
             
         if r.status_code != 200:
@@ -306,6 +308,9 @@ class LLMClient:
             raise LLMProviderError("OpenAI-compatible returned empty content", provider="openai")
             
         latency_ms = (time.perf_counter() - started) * 1000
+        
+        # Record metrics
+        LLM_LATENCY.labels(provider="openai", flow="generic").observe(latency_ms / 1000.0)
         
         logger.info(
             "llm.openai_success",

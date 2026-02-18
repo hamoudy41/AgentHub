@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, TypeVar
+from typing import Any, Callable, TypeVar
 
 from .core.logging import get_logger
 
@@ -148,7 +148,7 @@ class CircuitBreaker:
             self.state = CircuitState.OPEN
             self._update_metrics()
 
-    def get_state(self) -> dict[str, any]:
+    def get_state(self) -> dict[str, Any]:
         """Get current circuit breaker state for monitoring."""
         return {
             "name": self.name,
