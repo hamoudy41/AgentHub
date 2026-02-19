@@ -5,12 +5,12 @@ from __future__ import annotations
 from langchain_core.tools import tool
 
 
-def _search_duckduckgo(query: str, max_results: int = 5) -> str:
+def _search_duckduckgo(query: str, max_results: int = 5, region: str = "us-en") -> str:
     """Perform web search via DuckDuckGo (free, no API key)."""
     try:
         from duckduckgo_search import DDGS
 
-        results = DDGS().text(query, max_results=max_results)
+        results = DDGS().text(query, region=region, max_results=max_results)
         if not results:
             return f"No web results found for: {query}"
         parts = []
@@ -61,9 +61,10 @@ def _search_web(query: str, max_results: int = 5) -> str:
     from app.core.config import get_settings
 
     settings = get_settings()
+    region = settings.search_region or "us-en"
     if settings.search_provider == "tavily" and settings.tavily_api_key:
         return _search_tavily(query, max_results)
-    return _search_duckduckgo(query, max_results)
+    return _search_duckduckgo(query, max_results, region=region)
 
 
 @tool

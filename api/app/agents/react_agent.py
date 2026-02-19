@@ -138,7 +138,7 @@ def _create_agent_graph(tools: list) -> Any:
     def call_model(state: AgentState, config: RunnableConfig) -> dict:
         system = SystemMessage(
             content="You are a helpful, friendly AI assistant with access to tools. "
-            "Always respond in English. "
+            "CRITICAL: Always respond in English only. Never use Chinese, Spanish, or other languages. "
             "Use the calculator for math, search for web info, document_lookup for document content. "
             "When using search_tool: use the most specific, distinctive terms from the question. "
             "Avoid single generic words that match unrelated topics. "
@@ -196,10 +196,13 @@ def _get_model_without_tools() -> Any:
     )
 
 
-async def _search_and_summarize(message: str) -> str | None:
+async def _search_and_summarize(
+    message: str, search_content: str | None = None, strict_english: bool = False
+) -> str | None:
     """Search the web and use LLM to summarize. Returns None if search or summarization fails."""
-    query = _search_query_from_message(message)
-    search_content = search_tool.invoke({"query": query})
+    if search_content is None:
+        query = _search_query_from_message(message)
+        search_content = search_tool.invoke({"query": query})
     if (
         not search_content
         or "No web results" in search_content
@@ -211,9 +214,19 @@ async def _search_and_summarize(message: str) -> str | None:
     if not model:
         return None
 
+    lang_instruction = (
+        (
+            "CRITICAL: Respond ONLY in English. If the search results are in another language, "
+            "translate and summarize them in clear English. Never output Chinese, Spanish, or "
+            "any other language—only English."
+        )
+        if strict_english
+        else "Always respond in English. Use plain text only."
+    )
+
     prompt = (
         f"Summarize the following web search results in 2-4 concise sentences for the user. "
-        f"Answer the question directly. Always respond in English. Use plain text only.\n\n"
+        f"Answer the question directly. {lang_instruction}\n\n"
         f"Question: {message}\n\n"
         f"Search results:\n{search_content[:2000]}"
     )
@@ -305,11 +318,20 @@ async def run_agent(
                 and "No web results" not in search_content
                 and "Search failed" not in search_content
             ):
-                first_block = search_content.split("\n\n")[0] if search_content else ""
-                if len(first_block) > 800:
-                    first_block = first_block[:797] + "..."
-                answer = f"Based on web search:\n\n{first_block}"
-                tools_used = list(dict.fromkeys(tools_used + ["search_tool"]))
+                # Retry with strict English—never return raw search content (may be in other languages)
+                summary = await _search_and_summarize(
+                    message, search_content=search_content, strict_english=True
+                )
+                if summary:
+                    answer = summary
+                    tools_used = list(dict.fromkeys(tools_used + ["search_tool"]))
+                else:
+                    answer = (
+                        "I found some information but couldn't format it properly. "
+                        "Try rephrasing your question, or use math (e.g. average of 1,2,5,6) "
+                        "or document lookup."
+                    )
+                    tools_used = list(dict.fromkeys(tools_used + ["search_tool"]))
             else:
                 answer = (
                     "I couldn't find an answer. Try asking again or rephrasing. "

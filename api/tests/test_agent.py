@@ -340,8 +340,8 @@ async def test_run_agent_search_and_summarize_when_model_fails():
 
 
 @pytest.mark.asyncio
-async def test_run_agent_uses_raw_search_when_summarize_fails():
-    """run_agent returns raw search results when summarization fails."""
+async def test_run_agent_returns_polite_fallback_when_summarize_fails():
+    """run_agent returns a polite message when summarization fails (no raw search dump)."""
     mock_graph = AsyncMock()
     mock_graph.ainvoke = AsyncMock(
         return_value={
@@ -372,9 +372,9 @@ async def test_run_agent_uses_raw_search_when_summarize_fails():
             message="what is regular expression",
             get_document_fn=AsyncMock(return_value=None),
         )
-        assert "Based on web search" in result["answer"]
-        assert "regular expression" in result["answer"].lower()
-        assert "search pattern" in result["answer"].lower()
+        assert "couldn't format it properly" in result["answer"]
+        assert "Try rephrasing" in result["answer"]
+        assert "search_tool" in result.get("tools_used", [])
 
 
 @pytest.mark.asyncio

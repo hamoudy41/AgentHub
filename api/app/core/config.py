@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     embedding_model: str = "mock"
     embedding_dimension: int = 384
     search_provider: Literal["duckduckgo", "tavily"] = "duckduckgo"
+    search_region: str = (
+        "us-en"  # DuckDuckGo region for English results (us-en, uk-en, wt-wt, etc.)
+    )
     tavily_api_key: Optional[str] = None
 
     @model_validator(mode="after")
