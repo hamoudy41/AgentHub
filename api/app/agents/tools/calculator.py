@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import ast
+import math
 import operator
-from typing import Any
 
 from langchain_core.tools import tool
 
@@ -18,50 +18,84 @@ _BIN_OPS = {
     ast.Mod: operator.mod,
 }
 
+_UNARY_OPS = {
+    ast.UAdd: operator.pos,
+    ast.USub: operator.neg,
+}
+
+_MAX_EXPRESSION_LENGTH = 200
+_MAX_POWER_EXPONENT = 1000
+_MAX_INT_BITS = 4096  # Prevent extremely large integer allocations
+
 
 def _safe_eval(expr: str) -> float | int:
-    """Evaluate a simple math expression (numbers and +, -, *, /, ** only)."""
+    """Evaluate a simple math expression using a restricted AST."""
     tree = ast.parse(expr, mode="eval")
-    if not isinstance(tree.body, ast.BinOp):
 
-        def _eval_node(node: ast.AST) -> Any:
-            if isinstance(node, ast.Constant):
-                return node.value
-            if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-                return -_eval_node(node.operand)
-            if isinstance(node, ast.BinOp):
-                left = _eval_node(node.left)
-                right = _eval_node(node.right)
-                op = _BIN_OPS.get(type(node.op))
-                if op is None:
-                    raise ValueError(f"Unsupported operator: {type(node.op)}")
-                return op(left, right)
-            raise ValueError(f"Unsupported node: {type(node)}")
+    def _eval_node(node: ast.AST) -> float | int:
+        if isinstance(node, ast.Expression):
+            return _eval_node(node.body)
 
-        return _eval_node(tree.body)
-
-    def _eval_node(node: ast.AST) -> Any:
         if isinstance(node, ast.Constant):
+            if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
+                raise ValueError("Only numbers are allowed")
             return node.value
-        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-            return -_eval_node(node.operand)
+
+        if isinstance(node, ast.UnaryOp):
+            op = _UNARY_OPS.get(type(node.op))
+            if op is None:
+                raise ValueError(f"Unsupported unary operator: {type(node.op)}")
+            value = _eval_node(node.operand)
+            result = op(value)
+            if isinstance(result, bool) or not isinstance(result, (int, float)):
+                raise ValueError("Result is not a real number")
+            return result
+
         if isinstance(node, ast.BinOp):
             left = _eval_node(node.left)
             right = _eval_node(node.right)
             op = _BIN_OPS.get(type(node.op))
             if op is None:
                 raise ValueError(f"Unsupported operator: {type(node.op)}")
-            return op(left, right)
-        raise ValueError(f"Unsupported node: {type(node)}")
 
-    return _eval_node(tree.body)
+            if isinstance(node.op, ast.Pow):
+                if abs(right) > _MAX_POWER_EXPONENT:
+                    raise ValueError("Exponent too large")
+                if (
+                    isinstance(left, int)
+                    and isinstance(right, int)
+                    and right >= 0
+                    and abs(left) > 1
+                ):
+                    estimated_bits = right * abs(left).bit_length()
+                    if estimated_bits > _MAX_INT_BITS:
+                        raise ValueError("Result too large")
+
+            result = op(left, right)
+            if isinstance(result, bool) or not isinstance(result, (int, float)):
+                raise ValueError("Result is not a real number")
+            if isinstance(result, int) and result.bit_length() > _MAX_INT_BITS:
+                raise ValueError("Result too large")
+            if isinstance(result, float) and not math.isfinite(result):
+                raise ValueError("Result is not finite")
+            return result
+
+        raise ValueError(f"Unsupported expression: {type(node)}")
+
+    return _eval_node(tree)
 
 
 @tool
 def calculator_tool(expression: str) -> str:
-    """Evaluate a mathematical expression. Use for arithmetic like 2+3*4, 100/5, 2**10. For average of numbers, use (a+b+c)/n, e.g. (1+2+5+6)/4."""
+    """Evaluate a math expression (numbers, parentheses, + - * / ** // %)."""
     try:
-        result = _safe_eval(expression.strip())
+        expression = expression.strip()
+        if not expression:
+            return "Error: Empty expression."
+        if len(expression) > _MAX_EXPRESSION_LENGTH:
+            return f"Error: Expression too long (>{_MAX_EXPRESSION_LENGTH} chars)."
+
+        result = _safe_eval(expression)
         return str(result)
     except ZeroDivisionError as e:
         return f"Error: Division by zero - {e}"

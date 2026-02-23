@@ -20,9 +20,9 @@ services:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
       ollama:
-        condition: service_started
+        condition: service_healthy
 
   # Dev: Frontend Vite server with hot reload. Source mounted.
   frontend:
@@ -79,6 +79,11 @@ services:
     environment:
       # Keep model loaded indefinitely to avoid 10-30s cold start on first request
       OLLAMA_KEEP_ALIVE: "-1"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
 
   db:
     image: postgres:16-alpine
@@ -100,6 +105,11 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 volumes:
   postgres_data:

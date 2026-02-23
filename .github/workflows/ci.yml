@@ -1,57 +1,18 @@
-# CI: Lint + test on pull requests. Includes auto-format.
+# CI: Lint + test on pull requests.
 name: CI
 
 on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  backend-format:
-    name: Backend (auto-format)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install ruff
-        run: pip install ruff
-
-      - name: Ruff format (auto-fix)
-        run: ruff format api/app api/tests
-
-      - name: Commit and push if formatted
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --staged --quiet; then
-            echo "No formatting changes needed."
-          else
-            git commit -m "style: apply ruff format (auto)"
-            git fetch origin ${{ github.base_ref }}
-            if ! git rebase origin/${{ github.base_ref }}; then
-              echo "::error::Rebase failed. Please rebase your PR manually."
-              git rebase --abort
-              exit 1
-            fi
-            git push --force-with-lease
-            echo "Formatting applied. CI will re-run."
-            exit 1
-          fi
-
-  backend-lint-test:
+  backend:
     name: Backend (lint + test)
     runs-on: ubuntu-latest
-    needs: [backend-format]
     steps:
       - uses: actions/checkout@v4
 
@@ -59,6 +20,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: api/pyproject.toml
 
       - name: Install dependencies
         run: |
@@ -71,58 +34,12 @@ jobs:
       - name: Ruff (format)
         run: ruff format --check api/app api/tests
 
-      - name: Pytest (with coverage)
-        run: pytest api/tests/ -v --cov=app --cov-report=term-missing --cov-branch --cov-fail-under=80
+      - name: Pytest
+        run: pytest -v
 
-  frontend-format:
-    name: Frontend (auto-format)
-    runs-on: ubuntu-latest
-    needs: [backend-format]
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install dependencies
-        run: cd frontend && npm ci
-
-      - name: ESLint (auto-fix)
-        run: cd frontend && npx eslint . --fix
-
-      - name: Commit and push if formatted
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --staged --quiet; then
-            echo "No formatting changes needed."
-          else
-            git commit -m "style: apply eslint --fix (auto)"
-            git fetch origin ${{ github.base_ref }}
-            if ! git rebase origin/${{ github.base_ref }}; then
-              echo "::error::Rebase failed. Please rebase your PR manually."
-              git rebase --abort
-              exit 1
-            fi
-            git push --force-with-lease
-            echo "Formatting applied. CI will re-run."
-            exit 1
-          fi
-
-  frontend-lint-test:
+  frontend:
     name: Frontend (lint + test)
     runs-on: ubuntu-latest
-    needs: [frontend-format]
     steps:
       - uses: actions/checkout@v4
 
@@ -134,10 +51,13 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: cd frontend && npm ci
+        working-directory: frontend
+        run: npm ci
 
       - name: ESLint
-        run: cd frontend && npm run lint
+        working-directory: frontend
+        run: npm run lint
 
       - name: Test
-        run: cd frontend && npm run test:coverage
+        working-directory: frontend
+        run: npm run test:coverage

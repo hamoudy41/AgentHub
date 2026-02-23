@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Annotated, Any, AsyncIterator, Sequence, TypedDict
+from typing import Annotated, Any, AsyncIterator, Awaitable, Callable, Literal, Sequence, TypedDict
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -14,9 +14,14 @@ from langgraph.prebuilt import ToolNode
 from app.core.logging import get_logger
 from app.security import sanitize_user_input
 
-from .tools import BASE_TOOLS, calculator_tool, create_document_lookup_tool, search_tool
+from .chat_models import create_chat_model
+from .prompts import REACT_SYSTEM_PROMPT
+from .tools import BASE_TOOLS, calculator_tool, create_document_lookup_tool
+from .tools.search import SearchToolError, SearchToolNoResults, search_web
 
 logger = get_logger(__name__)
+
+GetDocumentFn = Callable[[str, str], Awaitable[dict[str, Any] | None]]
 
 
 def _translate_math_intent(message: str) -> tuple[str, str] | None:
@@ -45,8 +50,15 @@ def _translate_math_intent(message: str) -> tuple[str, str] | None:
 
 def _is_malformed(text: str) -> bool:
     """True if text looks like malformed tool-call JSON."""
+    if not isinstance(text, str):
+        return False
     t = text.strip()
-    return t.startswith("{") and '"parameters"' in t and '"name"' in t
+    if not t:
+        return False
+    if t.startswith("{") and '"parameters"' in t and '"name"' in t:
+        return True
+    # Common tool-call-ish payloads from various providers
+    return t.startswith("{") and ('"tool_calls"' in t or '"function"' in t)
 
 
 _STOP_WORDS = frozenset(
@@ -95,58 +107,18 @@ class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
 
-def _get_chat_model(provider: str, base_url: str, model: str, api_key: str | None = None):
-    """Create LangChain ChatModel from our config."""
-    base = str(base_url).rstrip("/")
-    if provider == "ollama":
-        from langchain_ollama import ChatOllama
-
-        return ChatOllama(
-            base_url=base,
-            model=model,
-            temperature=0,
-            num_ctx=2048,
-            num_predict=512,
-        )
-    # openai_compatible
-    from langchain_openai import ChatOpenAI
-
-    return ChatOpenAI(
-        base_url=f"{base}/v1",
-        api_key=api_key or "not-needed",
-        model=model,
-        temperature=0,
-    )
-
-
 def _create_agent_graph(tools: list) -> Any:
     """Build the ReAct graph with given tools."""
     from app.core.config import get_settings
 
     settings = get_settings()
-    if not settings.llm_base_url or not settings.llm_provider:
+    model = create_chat_model(settings)
+    if not model:
         return None
-
-    model = _get_chat_model(
-        provider=settings.llm_provider,
-        base_url=str(settings.llm_base_url),
-        model=settings.llm_model,
-        api_key=settings.llm_api_key,
-    )
     model_with_tools = model.bind_tools(tools)
 
     def call_model(state: AgentState, config: RunnableConfig) -> dict:
-        system = SystemMessage(
-            content="You are a helpful, friendly AI assistant with access to tools. "
-            "CRITICAL: Always respond in English only. Never use Chinese, Spanish, or other languages. "
-            "Use the calculator for math, search for web info, document_lookup for document content. "
-            "When using search_tool: use the most specific, distinctive terms from the question. "
-            "Avoid single generic words that match unrelated topics. "
-            "When no tool is needed, answer directly in plain text—never output JSON or tool schemas. "
-            "Be conversational and helpful. Answer any question the user asks—do not refuse or deflect. "
-            "Use your knowledge freely. If search returns no results, answer from what you know. "
-            "Respond concisely but naturally. If you truly cannot help, say so."
-        )
+        system = SystemMessage(content=REACT_SYSTEM_PROMPT)
         response = model_with_tools.invoke(
             [system] + list(state["messages"]),
             config,
@@ -173,7 +145,7 @@ def _create_agent_graph(tools: list) -> Any:
 
 def agent_graph(
     tenant_id: str,
-    get_document_fn: Any,
+    get_document_fn: GetDocumentFn,
 ) -> Any:
     """Create the agent graph with document lookup bound to tenant."""
     doc_tool = create_document_lookup_tool(tenant_id, get_document_fn)
@@ -186,65 +158,95 @@ def _get_model_without_tools() -> Any:
     from app.core.config import get_settings
 
     settings = get_settings()
-    if not settings.llm_base_url or not settings.llm_provider:
-        return None
-    return _get_chat_model(
-        provider=settings.llm_provider,
-        base_url=str(settings.llm_base_url),
-        model=settings.llm_model,
-        api_key=settings.llm_api_key,
-    )
+    return create_chat_model(settings)
 
 
-async def _search_and_summarize(
-    message: str, search_content: str | None = None, strict_english: bool = False
+async def _summarize_search_results(
+    message: str,
+    *,
+    search_content: str,
+    strict_english: bool,
 ) -> str | None:
-    """Search the web and use LLM to summarize. Returns None if search or summarization fails."""
-    if search_content is None:
-        query = _search_query_from_message(message)
-        search_content = search_tool.invoke({"query": query})
-    if (
-        not search_content
-        or "No web results" in search_content
-        or "Search failed" in search_content
-    ):
-        return None
-
+    """Summarize search results for a user question."""
     model = _get_model_without_tools()
     if not model:
         return None
 
-    lang_instruction = (
-        (
-            "CRITICAL: Respond ONLY in English. If the search results are in another language, "
-            "translate and summarize them in clear English. Never output Chinese, Spanish, or "
-            "any other language—only English."
+    if strict_english:
+        system = SystemMessage(
+            content=(
+                "You are a concise summarizer. Respond ONLY in English. "
+                "If the source text is not English, translate and summarize it in English. "
+                "Never output tool-call JSON or schemas."
+            )
         )
-        if strict_english
-        else "Always respond in English. Use plain text only."
-    )
+    else:
+        system = SystemMessage(
+            content=(
+                "You are a concise summarizer. Respond in English using plain text only. "
+                "Never output tool-call JSON or schemas."
+            )
+        )
 
     prompt = (
-        f"Summarize the following web search results in 2-4 concise sentences for the user. "
-        f"Answer the question directly. {lang_instruction}\n\n"
+        "Summarize the following web search results in 2–4 concise sentences. "
+        "Answer the user's question directly.\n\n"
         f"Question: {message}\n\n"
         f"Search results:\n{search_content[:2000]}"
     )
+
     try:
-        response = await model.ainvoke([HumanMessage(content=prompt)])
-        if hasattr(response, "content") and response.content:
-            text = str(response.content).strip()
-            if text and not _is_malformed(text):
-                return text
+        response = await model.ainvoke([system, HumanMessage(content=prompt)])
     except Exception:
-        pass
-    return None
+        return None
+
+    content = getattr(response, "content", None)
+    if not content:
+        return None
+
+    text = str(content).strip()
+    if not text or _is_malformed(text):
+        return None
+    return text
+
+
+WebFallbackStatus = Literal["ok", "no_results", "search_failed", "summarize_failed"]
+
+
+async def _web_fallback_answer(message: str) -> tuple[str | None, WebFallbackStatus]:
+    """Try answering by searching the web and summarizing results."""
+    query = _search_query_from_message(message)
+    try:
+        search_content = search_web(query)
+    except SearchToolNoResults:
+        return None, "no_results"
+    except SearchToolError as e:
+        logger.warning("react_agent.search_failed", error=str(e), query=query)
+        return None, "search_failed"
+
+    summary = await _summarize_search_results(
+        message,
+        search_content=search_content,
+        strict_english=False,
+    )
+    if summary:
+        return summary, "ok"
+
+    summary = await _summarize_search_results(
+        message,
+        search_content=search_content,
+        strict_english=True,
+    )
+    if summary:
+        return summary, "ok"
+
+    return None, "summarize_failed"
 
 
 async def run_agent(
     tenant_id: str,
     message: str,
-    get_document_fn: Any,
+    get_document_fn: GetDocumentFn,
 ) -> dict[str, Any]:
     """Run the agent and return the final response."""
     # Sanitize user input for security
@@ -289,54 +291,58 @@ async def run_agent(
     if not graph:
         return {"answer": "LLM not configured.", "tools_used": [], "error": "llm_not_configured"}
 
-    def _extract_result(res: dict) -> tuple[str, list[str]]:
-        final = None
+    def _extract_result(res: dict[str, Any]) -> tuple[str, list[str]]:
+        messages = res.get("messages") or []
+        final: str | None = None
         used: list[str] = []
-        for m in reversed(res["messages"]):
+
+        for m in reversed(messages):
             if isinstance(m, AIMessage):
-                final = m.content or "No response."
+                content = m.content
+                final = content if isinstance(content, str) else str(content)
+                final = final.strip() or "No response."
                 break
-        for m in res["messages"]:
-            if isinstance(m, ToolMessage):
+
+        for m in messages:
+            if isinstance(m, ToolMessage) and getattr(m, "name", None):
                 used.append(m.name)
+
         return final or "No response.", list(dict.fromkeys(used))
 
     inputs = {"messages": [HumanMessage(content=message)]}
-    result = await graph.ainvoke(inputs)
+    try:
+        result = await graph.ainvoke(inputs)
+    except Exception as e:
+        logger.exception("react_agent.graph_invoke_failed", tenant_id=tenant_id, error=str(e))
+        return {
+            "answer": "Something went wrong while generating a response. Please try again.",
+            "tools_used": [],
+            "error": "agent_failed",
+        }
     answer, tools_used = _extract_result(result)
 
     if _is_malformed(answer) or not answer or answer == "No response.":
-        summary = await _search_and_summarize(message)
+        summary, status = await _web_fallback_answer(message)
         if summary:
             answer = summary
             tools_used = list(dict.fromkeys(tools_used + ["search_tool"]))
+        elif status == "summarize_failed":
+            answer = (
+                "I found some information but couldn't format it properly. "
+                "Try rephrasing your question, or use math (e.g. average of 1,2,5,6) "
+                "or document lookup."
+            )
+            tools_used = list(dict.fromkeys(tools_used + ["search_tool"]))
+        elif status == "search_failed":
+            answer = (
+                "I couldn't perform a web search right now. Try rephrasing your question "
+                "or try again later."
+            )
         else:
-            query = _search_query_from_message(message)
-            search_content = search_tool.invoke({"query": query})
-            if (
-                search_content
-                and "No web results" not in search_content
-                and "Search failed" not in search_content
-            ):
-                # Retry with strict English—never return raw search content (may be in other languages)
-                summary = await _search_and_summarize(
-                    message, search_content=search_content, strict_english=True
-                )
-                if summary:
-                    answer = summary
-                    tools_used = list(dict.fromkeys(tools_used + ["search_tool"]))
-                else:
-                    answer = (
-                        "I found some information but couldn't format it properly. "
-                        "Try rephrasing your question, or use math (e.g. average of 1,2,5,6) "
-                        "or document lookup."
-                    )
-                    tools_used = list(dict.fromkeys(tools_used + ["search_tool"]))
-            else:
-                answer = (
-                    "I couldn't find an answer. Try asking again or rephrasing. "
-                    "You can also try math (e.g. average of 1,2,5,6) or document lookup."
-                )
+            answer = (
+                "I couldn't find an answer. Try asking again or rephrasing. "
+                "You can also try math (e.g. average of 1,2,5,6) or document lookup."
+            )
 
     return {"answer": answer, "tools_used": tools_used}
 
@@ -344,9 +350,26 @@ async def run_agent(
 async def run_agent_stream(
     tenant_id: str,
     message: str,
-    get_document_fn: Any,
+    get_document_fn: GetDocumentFn,
 ) -> AsyncIterator[str]:
     """Stream agent response tokens."""
+    # Sanitize user input for security (match run_agent behavior)
+    try:
+        message = sanitize_user_input(
+            message,
+            max_length=4000,
+            check_injection=True,
+            tenant_id=tenant_id,
+        )
+    except ValueError as e:
+        logger.warning(
+            "agent.input_validation_failed",
+            tenant_id=tenant_id,
+            error=str(e),
+        )
+        yield "Input validation failed. Please check your input and try again."
+        return
+
     translated = _translate_math_intent(message)
     if translated:
         expr, intent = translated
@@ -372,8 +395,14 @@ async def run_agent_stream(
         return
 
     inputs = {"messages": [HumanMessage(content=message)]}
-    async for msg, metadata in graph.astream(inputs, stream_mode="messages"):
-        if hasattr(msg, "content") and msg.content and isinstance(msg.content, str):
-            yield msg.content
-        elif isinstance(msg, dict) and msg.get("content"):
-            yield msg["content"]
+    try:
+        async for msg, metadata in graph.astream(inputs, stream_mode="messages"):
+            if isinstance(msg, AIMessage) and msg.content:
+                yield msg.content if isinstance(msg.content, str) else str(msg.content)
+            elif isinstance(msg, dict):
+                content = msg.get("content")
+                if content:
+                    yield content if isinstance(content, str) else str(content)
+    except Exception as e:
+        logger.exception("react_agent.graph_stream_failed", tenant_id=tenant_id, error=str(e))
+        yield "Something went wrong while generating a response. Please try again."
