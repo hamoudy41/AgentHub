@@ -49,8 +49,9 @@ uvicorn app.main:app --reload
 
 # Frontend (separate terminal)
 cd frontend
-npm install
-npm run dev
+corepack enable
+pnpm install
+pnpm run dev
 ```
 
 - API: http://localhost:8000
@@ -270,10 +271,11 @@ Tests run from `api/` so `app` is importable. Coverage: `pytest tests/ --cov=app
 
 ```bash
 cd frontend
-npm install
-npm run dev
-npm test
-npm run build
+corepack enable
+pnpm install
+pnpm run dev
+pnpm test
+pnpm run build
 ```
 
 Frontend tooling targets Node `20.19+` or `22.12+`. The current Vite/Vitest stack is not reliable on Node 18.

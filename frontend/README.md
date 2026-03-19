@@ -6,8 +6,8 @@ React + TypeScript frontend for AgentHub. Tab-based UI for health, documents, RA
 
 ## Prerequisites
 
-- Node.js 22+
-- npm
+- Node.js 20.19+ or 22.12+
+- Corepack-enabled pnpm
 
 ---
 
@@ -17,13 +17,14 @@ React + TypeScript frontend for AgentHub. Tab-based UI for health, documents, RA
 
 ```bash
 cd frontend
-npm install
+corepack enable
+pnpm install
 ```
 
 ### Run
 
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 App at http://localhost:5173. Vite proxies `/api` and `/metrics` to the backend (default `http://localhost:8000`).
@@ -43,7 +44,7 @@ In Docker, set `VITE_PROXY_TARGET=http://host.docker.internal:8000` so the conta
 ## Build
 
 ```bash
-npm run build
+pnpm run build
 ```
 
 Output in `dist/`. Nginx (or similar) serves `index.html` and static assets. For production, configure the API base URL (e.g. `VITE_API_BASE=https://api.example.com/api/v1` at build time).
@@ -53,13 +54,13 @@ Output in `dist/`. Nginx (or similar) serves `index.html` and static assets. For
 ## Testing
 
 ```bash
-npm test
+pnpm test
 ```
 
 Vitest runs in watch mode by default. For CI:
 
 ```bash
-npm run test:coverage
+pnpm run test:coverage
 ```
 
 Coverage thresholds: 80% branches, functions, lines, statements. Reports in `coverage/`.

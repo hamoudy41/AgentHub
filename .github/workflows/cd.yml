@@ -77,21 +77,26 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.0
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Install dependencies
-        run: cd frontend && npm ci
+        run: cd frontend && pnpm install --frozen-lockfile
 
       - name: ESLint
-        run: cd frontend && npm run lint
+        run: cd frontend && pnpm run lint
 
       - name: Test
-        run: cd frontend && npm run test:coverage
+        run: cd frontend && pnpm run test:coverage
 
   frontend-build-push:
     name: Frontend (build + push)
