@@ -2,10 +2,12 @@ from functools import lru_cache
 from typing import Literal, Optional
 
 from pydantic import AnyHttpUrl, field_validator, model_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
     app_name: str = "AgentHub"
     environment: Literal["local", "dev", "prod"] = "local"
     api_v1_prefix: str = "/api/v1"
@@ -56,10 +58,6 @@ class Settings(BaseSettings):
                 "API_KEY is required when ENVIRONMENT=prod. Set API_KEY in your environment."
             )
         return self
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
 
 @lru_cache(maxsize=1)

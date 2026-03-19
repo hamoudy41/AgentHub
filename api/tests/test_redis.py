@@ -155,7 +155,7 @@ async def test_check_rate_limit_over_limit():
 @pytest.mark.asyncio
 async def test_check_rate_limit_exception_returns_true():
     """check_rate_limit returns True on exception (fail open)."""
-    mock_client = AsyncMock()
+    mock_client = MagicMock()
     mock_client.pipeline.side_effect = ConnectionError("Redis down")
     with patch("app.core.redis.get_redis", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = mock_client

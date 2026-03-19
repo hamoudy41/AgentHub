@@ -207,8 +207,13 @@ async def test_ask_stream_success(db_session):
 async def test_ask_stream_fallback_on_exception(db_session):
     """run_ask_flow_stream yields fallback message when stream_complete raises."""
     with patch("app.services_ai_flows.llm_client") as mock_llm:
+
+        async def fail_stream(*args, **kwargs):
+            raise RuntimeError("Stream failed")
+            yield
+
         mock_llm.is_configured.return_value = True
-        mock_llm.stream_complete = AsyncMock(side_effect=RuntimeError("Stream failed"))
+        mock_llm.stream_complete = fail_stream
         tokens = []
         async for t in run_ask_flow_stream(
             tenant_id="t1",

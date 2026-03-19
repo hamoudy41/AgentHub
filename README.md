@@ -279,6 +279,8 @@ npm test
 npm run build
 ```
 
+Frontend tooling targets Node `20.19+` or `22.12+`. The current Vite/Vitest stack is not reliable on Node 18.
+
 `VITE_API_BASE` overrides API base URL (default: `/api/v1`). `VITE_PROXY_TARGET` overrides proxy target when using Vite dev server.
 
 ---
@@ -290,8 +292,12 @@ npm run build
 ├── api/                    # FastAPI backend
 │   ├── app/
 │   │   ├── agents/         # LangGraph ReAct agent
+│   │   ├── documents/      # Document ingest/read domain services
+│   │   ├── flows/          # Per-workflow orchestration modules
+│   │   ├── http/           # App factory, middleware, routers, SSE helpers
+│   │   ├── llm/            # Provider adapters and shared LLM types
 │   │   ├── rag/            # Chunking, embeddings, retrieval
-│   │   ├── api.py          # Routes, middleware
+│   │   ├── api.py          # Compatibility entrypoint for create_app/app
 │   │   └── ...
 │   ├── alembic/            # Migrations
 │   └── tests/
@@ -299,5 +305,6 @@ npm run build
 ├── k8s/                    # Kubernetes manifests
 ├── postman/                # API collection
 ├── ARCHITECTURE.md         # Technical architecture
+├── QUALITY_ASSESSMENT.md   # Code quality, maintainability, performance review
 └── COMPLIANCE.md           # Data, security, audit
 ```

@@ -117,8 +117,13 @@ async def test_rag_query_flow_stream_llm_error(db_session):
     with patch("app.services_rag.rag_pipeline") as mock_pipeline:
         mock_pipeline.retrieve = AsyncMock(return_value=[])
         with patch("app.services_rag.llm_client") as mock_llm:
+
+            async def fail_stream(*args, **kwargs):
+                raise Exception("Stream failed")
+                yield
+
             mock_llm.is_configured.return_value = True
-            mock_llm.stream_complete = AsyncMock(side_effect=Exception("Stream failed"))
+            mock_llm.stream_complete = fail_stream
             tokens = []
             async for t in run_rag_query_flow_stream(
                 tenant_id="t1",

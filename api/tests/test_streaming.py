@@ -10,7 +10,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_ask_stream_returns_sse_content_type(client, tenant_headers):
     """Streaming ask returns 200 with text/event-stream content type."""
-    with patch("app.api.run_ask_flow_stream") as mock_stream:
+    with patch("app.http.routers.workflows.run_ask_flow_stream") as mock_stream:
 
         async def fake_stream(*args, **kwargs):
             yield "Hello"
@@ -30,7 +30,7 @@ async def test_ask_stream_returns_sse_content_type(client, tenant_headers):
 @pytest.mark.asyncio
 async def test_ask_stream_yields_token_events(client, tenant_headers):
     """Streaming ask yields SSE events with token data."""
-    with patch("app.api.run_ask_flow_stream") as mock_stream:
+    with patch("app.http.routers.workflows.run_ask_flow_stream") as mock_stream:
 
         async def fake_stream(*args, **kwargs):
             yield "50"
@@ -80,7 +80,7 @@ async def test_ask_stream_validates_payload(client, tenant_headers):
 @pytest.mark.asyncio
 async def test_ask_stream_respects_tenant(client, tenant_headers):
     """Streaming ask passes tenant_id to the flow."""
-    with patch("app.api.run_ask_flow_stream") as mock_stream:
+    with patch("app.http.routers.workflows.run_ask_flow_stream") as mock_stream:
 
         async def fake_stream(*args, **kwargs):
             yield "ok"

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import heapq
 import math
 from typing import Any
 
@@ -42,10 +44,7 @@ class RAGPipeline:
         if not chunks:
             return 0
 
-        embeddings: list[list[float]] = []
-        for c in chunks:
-            vec = await embedding_service.embed(c)
-            embeddings.append(vec)
+        embeddings = await asyncio.gather(*(embedding_service.embed(chunk) for chunk in chunks))
 
         factory = get_session_factory()
 
@@ -87,22 +86,39 @@ class RAGPipeline:
         factory = get_session_factory()
 
         async def _do(session: AsyncSession) -> list[dict[str, Any]]:
-            stmt = select(DocumentChunk).where(DocumentChunk.tenant_id == tenant_id)
+            stmt = select(
+                DocumentChunk.document_id,
+                DocumentChunk.chunk_index,
+                DocumentChunk.text,
+                DocumentChunk.embedding,
+            ).where(DocumentChunk.tenant_id == tenant_id)
             if document_ids:
                 stmt = stmt.where(DocumentChunk.document_id.in_(document_ids))
             result = await session.execute(stmt)
-            chunks = result.scalars().all()
-            scored = [(c, _cosine_similarity(query_vec, c.embedding)) for c in chunks]
-            scored.sort(key=lambda x: x[1], reverse=True)
+            rows = result.all()
+            if not rows:
+                return []
+
+            top_matches: list[tuple[float, str, int, str]] = []
+            for document_id_value, chunk_index_value, text_value, embedding_value in rows:
+                score = _cosine_similarity(query_vec, embedding_value)
+                entry = (score, document_id_value, chunk_index_value, text_value)
+                if len(top_matches) < top_k:
+                    heapq.heappush(top_matches, entry)
+                    continue
+                if score > top_matches[0][0]:
+                    heapq.heapreplace(top_matches, entry)
+
+            top_matches.sort(reverse=True)
             return [
                 {
-                    "text": c.text,
-                    "document_id": c.document_id,
-                    "chunk_index": c.chunk_index,
-                    "score": round(s, 4),
-                    "metadata": {"document_id": c.document_id},
+                    "text": text_value,
+                    "document_id": document_id_value,
+                    "chunk_index": chunk_index_value,
+                    "score": round(score, 4),
+                    "metadata": {"document_id": document_id_value},
                 }
-                for c, s in scored[:top_k]
+                for score, document_id_value, chunk_index_value, text_value in top_matches
             ]
 
         if db:

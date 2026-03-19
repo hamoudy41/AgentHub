@@ -1,6 +1,11 @@
 const API_BASE = import.meta.env.VITE_API_BASE ?? '/api/v1'
 const API_KEY = import.meta.env.VITE_API_KEY ?? undefined
 
+interface RequestContext {
+  apiKey?: string
+  tenantId?: string
+}
+
 export interface HealthStatus {
   environment: string
   timestamp: string
@@ -65,25 +70,79 @@ async function parseError(r: Response): Promise<string> {
   return text || `Request failed (${r.status})`
 }
 
-function headers(apiKey?: string, tenantId?: string): HeadersInit {
-  const h: Record<string, string> = {
-    'Content-Type': 'application/json',
+function buildApiUrl(path: string): string {
+  return `${API_BASE}${path}`
+}
+
+function buildHeaders(
+  { apiKey, tenantId }: RequestContext = {},
+  contentType: string | null = 'application/json'
+): Record<string, string> {
+  const resolvedHeaders: Record<string, string> = {
     'X-Tenant-ID': tenantId ?? 'default',
   }
+
+  if (contentType) {
+    resolvedHeaders['Content-Type'] = contentType
+  }
+
   const key = apiKey ?? API_KEY
-  if (key) h['X-API-Key'] = key
-  return h
+  if (key) {
+    resolvedHeaders['X-API-Key'] = key
+  }
+
+  return resolvedHeaders
+}
+
+async function requestJson<T>(
+  path: string,
+  init: Omit<RequestInit, 'body' | 'headers'> & { body?: unknown } = {},
+  context: RequestContext = {}
+): Promise<T> {
+  const { body, ...requestInit } = init
+  const response = await fetch(buildApiUrl(path), {
+    ...requestInit,
+    headers: buildHeaders(context),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!response.ok) throw new Error(await parseError(response))
+  return response.json()
+}
+
+async function requestForm<T>(
+  path: string,
+  formData: FormData,
+  init: Omit<RequestInit, 'body' | 'headers'> = {},
+  context: RequestContext = {}
+): Promise<T> {
+  const response = await fetch(buildApiUrl(path), {
+    ...init,
+    headers: buildHeaders(context, null),
+    body: formData,
+  })
+  if (!response.ok) throw new Error(await parseError(response))
+  return response.json()
+}
+
+async function openStream(
+  path: string,
+  body: unknown,
+  context: RequestContext = {}
+): Promise<Response> {
+  const response = await fetch(buildApiUrl(path), {
+    method: 'POST',
+    headers: buildHeaders(context),
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) throw new Error(await parseError(response))
+  return response
 }
 
 export async function getHealth(
   apiKey?: string,
   tenantId?: string
 ): Promise<HealthStatus> {
-  const r = await fetch(`${API_BASE}/health`, {
-    headers: headers(apiKey, tenantId),
-  })
-  if (!r.ok) throw new Error(await parseError(r))
-  return r.json()
+  return requestJson('/health', {}, { apiKey, tenantId })
 }
 
 export async function createDocument(
@@ -91,13 +150,7 @@ export async function createDocument(
   apiKey?: string,
   tenantId?: string
 ): Promise<DocumentRead> {
-  const r = await fetch(`${API_BASE}/documents`, {
-    method: 'POST',
-    headers: headers(apiKey, tenantId),
-    body: JSON.stringify(payload),
-  })
-  if (!r.ok) throw new Error(await parseError(r))
-  return r.json()
+  return requestJson('/documents', { method: 'POST', body: payload }, { apiKey, tenantId })
 }
 
 export async function uploadDocument(
@@ -110,15 +163,7 @@ export async function uploadDocument(
   form.append('file', file)
   if (options.documentId) form.append('document_id', options.documentId)
   if (options.title) form.append('title', options.title)
-  const h = headers(apiKey, tenantId) as Record<string, string>
-  delete h['Content-Type']
-  const r = await fetch(`${API_BASE}/documents/upload`, {
-    method: 'POST',
-    headers: h,
-    body: form,
-  })
-  if (!r.ok) throw new Error(await parseError(r))
-  return r.json()
+  return requestForm('/documents/upload', form, { method: 'POST' }, { apiKey, tenantId })
 }
 
 export async function getDocument(
@@ -126,11 +171,7 @@ export async function getDocument(
   apiKey?: string,
   tenantId?: string
 ): Promise<DocumentRead> {
-  const r = await fetch(`${API_BASE}/documents/${id}`, {
-    headers: headers(apiKey, tenantId),
-  })
-  if (!r.ok) throw new Error(await parseError(r))
-  return r.json()
+  return requestJson(`/documents/${id}`, {}, { apiKey, tenantId })
 }
 
 export async function classify(
@@ -139,13 +180,14 @@ export async function classify(
   apiKey?: string,
   tenantId?: string
 ): Promise<ClassifyResponse> {
-  const r = await fetch(`${API_BASE}/ai/classify`, {
-    method: 'POST',
-    headers: headers(apiKey, tenantId),
-    body: JSON.stringify({ text, candidate_labels: candidateLabels }),
-  })
-  if (!r.ok) throw new Error(await parseError(r))
-  return r.json()
+  return requestJson(
+    '/ai/classify',
+    {
+      method: 'POST',
+      body: { text, candidate_labels: candidateLabels },
+    },
+    { apiKey, tenantId }
+  )
 }
 
 export async function notarySummarize(
@@ -157,13 +199,7 @@ export async function notarySummarize(
   const body: Record<string, unknown> = { text }
   if (options.documentId) body.document_id = options.documentId
   if (options.language) body.language = options.language
-  const r = await fetch(`${API_BASE}/ai/notary/summarize`, {
-    method: 'POST',
-    headers: headers(apiKey, tenantId),
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) throw new Error(await parseError(r))
-  return r.json()
+  return requestJson('/ai/notary/summarize', { method: 'POST', body }, { apiKey, tenantId })
 }
 
 export async function ask(
@@ -172,13 +208,11 @@ export async function ask(
   apiKey?: string,
   tenantId?: string
 ): Promise<AskResponse> {
-  const r = await fetch(`${API_BASE}/ai/ask`, {
-    method: 'POST',
-    headers: headers(apiKey, tenantId),
-    body: JSON.stringify({ question, context }),
-  })
-  if (!r.ok) throw new Error(await parseError(r))
-  return r.json()
+  return requestJson(
+    '/ai/ask',
+    { method: 'POST', body: { question, context } },
+    { apiKey, tenantId }
+  )
 }
 
 export interface RAGQueryResponse {
@@ -203,13 +237,7 @@ export async function ragQuery(
   const body: Record<string, unknown> = { query }
   if (options.documentIds?.length) body.document_ids = options.documentIds
   if (options.topK != null) body.top_k = options.topK
-  const r = await fetch(`${API_BASE}/ai/rag/query`, {
-    method: 'POST',
-    headers: headers(apiKey, tenantId),
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) throw new Error(await parseError(r))
-  return r.json()
+  return requestJson('/ai/rag/query', { method: 'POST', body }, { apiKey, tenantId })
 }
 
 export async function ragIndex(
@@ -217,13 +245,11 @@ export async function ragIndex(
   apiKey?: string,
   tenantId?: string
 ): Promise<RAGIndexResponse> {
-  const r = await fetch(`${API_BASE}/ai/rag/index`, {
-    method: 'POST',
-    headers: headers(apiKey, tenantId),
-    body: JSON.stringify({ document_id: documentId }),
-  })
-  if (!r.ok) throw new Error(await parseError(r))
-  return r.json()
+  return requestJson(
+    '/ai/rag/index',
+    { method: 'POST', body: { document_id: documentId } },
+    { apiKey, tenantId }
+  )
 }
 
 export interface AgentChatResponse {
@@ -237,13 +263,11 @@ export async function agentChat(
   apiKey?: string,
   tenantId?: string
 ): Promise<AgentChatResponse> {
-  const r = await fetch(`${API_BASE}/ai/agents/chat`, {
-    method: 'POST',
-    headers: headers(apiKey, tenantId),
-    body: JSON.stringify({ message }),
-  })
-  if (!r.ok) throw new Error(await parseError(r))
-  return r.json()
+  return requestJson(
+    '/ai/agents/chat',
+    { method: 'POST', body: { message } },
+    { apiKey, tenantId }
+  )
 }
 
 export async function* agentChatStream(
@@ -251,12 +275,7 @@ export async function* agentChatStream(
   apiKey?: string,
   tenantId?: string
 ): AsyncGenerator<{ token?: string; done?: boolean; error?: string }> {
-  const r = await fetch(`${API_BASE}/ai/agents/chat/stream`, {
-    method: 'POST',
-    headers: headers(apiKey, tenantId),
-    body: JSON.stringify({ message }),
-  })
-  if (!r.ok) throw new Error(await parseError(r))
+  const r = await openStream('/ai/agents/chat/stream', { message }, { apiKey, tenantId })
 
   if (!r.body) {
     throw new Error('Stream error: missing response body')
@@ -274,7 +293,7 @@ export async function* agentChatStream(
 
   const decoder = new TextDecoder()
   let buffer = ''
-  
+
   try {
     while (true) {
       let readResult
@@ -284,27 +303,27 @@ export async function* agentChatStream(
         const msg = err instanceof Error ? err.message : 'Unknown error'
         throw new Error(`Stream error: ${msg}`)
       }
-      
+
       const { done, value } = readResult
       if (done) break
-      
+
       if (!value) {
         continue
       }
-      
+
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
-      
+
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const data = line.slice(6)
           if (data === '[DONE]') continue
-          
+
           if (!data || data.trim() === '') {
             continue
           }
-          
+
           try {
             const parsed = JSON.parse(data) as { token?: string; done?: boolean; error?: string }
             yield parsed

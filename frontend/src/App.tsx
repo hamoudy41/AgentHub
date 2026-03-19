@@ -1,3 +1,4 @@
+import type { ComponentType } from 'react'
 import { useState } from 'react'
 import {
   AgentTab,
@@ -9,19 +10,25 @@ import {
   NotaryTab,
   RAGTab,
 } from './components'
+import type { TabId } from './components'
+
+const TAB_COMPONENTS: Record<TabId, ComponentType> = {
+  health: HealthTab,
+  documents: DocumentsTab,
+  classify: ClassifyTab,
+  notary: NotaryTab,
+  ask: AskTab,
+  rag: RAGTab,
+  agents: AgentTab,
+}
 
 export default function App() {
-  const [tab, setTab] = useState<import('./components').TabId>('health')
+  const [tab, setTab] = useState<TabId>('health')
+  const ActiveTab = TAB_COMPONENTS[tab]
 
   return (
     <Layout tab={tab} onTabChange={setTab}>
-      {tab === 'health' && <HealthTab />}
-      {tab === 'documents' && <DocumentsTab />}
-      {tab === 'classify' && <ClassifyTab />}
-      {tab === 'notary' && <NotaryTab />}
-      {tab === 'ask' && <AskTab />}
-      {tab === 'rag' && <RAGTab />}
-      {tab === 'agents' && <AgentTab />}
+      <ActiveTab />
     </Layout>
   )
 }

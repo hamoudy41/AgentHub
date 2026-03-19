@@ -76,16 +76,27 @@ def test_calculator_tool_value_error():
 
 def test_search_tool_returns_results():
     """Search tool returns web search results or error message."""
-    result = search_tool.invoke({"query": "weather Paris"})
-    assert isinstance(result, str)
-    assert len(result) > 0
-    # Either real results, "No web results", or "Search failed"
-    assert (
-        "Paris" in result
-        or "No web results" in result
-        or "Search failed" in result
-        or "Source:" in result
-    )
+    from unittest.mock import patch
+
+    class FakeDDGS:
+        def text(self, query: str, region: str, max_results: int):
+            assert query == "weather Paris"
+            assert region == "us-en"
+            assert max_results == 5
+            return [
+                {
+                    "title": "Paris weather forecast",
+                    "body": "Paris will be sunny today.",
+                    "href": "https://example.com/weather/paris",
+                }
+            ]
+
+    with patch("duckduckgo_search.DDGS", return_value=FakeDDGS()):
+        result = search_tool.invoke({"query": "weather Paris"})
+
+    assert "Paris weather forecast" in result
+    assert "Paris will be sunny today." in result
+    assert "Source: https://example.com/weather/paris" in result
 
 
 def test_search_tool_uses_tavily_when_configured():

@@ -76,7 +76,7 @@ async def test_embedding_service_same_text_same_vector():
 @pytest.mark.asyncio
 async def test_rag_query_endpoint_returns_200(client, tenant_headers):
     """POST /ai/rag/query returns 200 with answer."""
-    with patch("app.api.run_rag_query_flow", new_callable=AsyncMock) as mock_flow:
+    with patch("app.http.routers.rag.run_rag_query_flow", new_callable=AsyncMock) as mock_flow:
         mock_flow.return_value = {"answer": "Paris", "sources": [], "model": "llama3.2"}
 
         r = await client.post(
@@ -104,7 +104,7 @@ async def test_rag_query_endpoint_validates_payload(client, tenant_headers):
 @pytest.mark.asyncio
 async def test_rag_query_endpoint_accepts_document_ids_filter(client, tenant_headers):
     """POST /ai/rag/query accepts optional document_ids to scope search."""
-    with patch("app.api.run_rag_query_flow", new_callable=AsyncMock) as mock_flow:
+    with patch("app.http.routers.rag.run_rag_query_flow", new_callable=AsyncMock) as mock_flow:
         mock_flow.return_value = {"answer": "From doc1", "sources": [], "model": "llama3.2"}
 
         r = await client.post(
@@ -126,7 +126,7 @@ async def test_rag_index_endpoint_indexes_document(client, tenant_headers):
         headers=tenant_headers,
         json={"id": "rag-doc", "title": "RAG Doc", "text": "Content for RAG indexing."},
     )
-    with patch("app.api.rag_pipeline") as mock_pipeline:
+    with patch("app.http.routers.rag.rag_pipeline") as mock_pipeline:
         mock_pipeline.index_document = AsyncMock(return_value=1)
 
         r = await client.post(
@@ -141,7 +141,7 @@ async def test_rag_index_endpoint_indexes_document(client, tenant_headers):
 @pytest.mark.asyncio
 async def test_rag_query_stream_endpoint_returns_sse(client, tenant_headers):
     """POST /ai/rag/query/stream returns SSE streaming response."""
-    with patch("app.api.run_rag_query_flow_stream") as mock_stream:
+    with patch("app.http.routers.rag.run_rag_query_flow_stream") as mock_stream:
 
         async def fake_stream(*args, **kwargs):
             yield "Paris"

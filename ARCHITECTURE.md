@@ -30,7 +30,7 @@ Technical architecture of AgentHub (AI Platform): components, data flow, design 
 | **LLM** | Ollama or OpenAI-compatible (httpx) |
 | **Agent** | LangGraph StateGraph, LangChain tools |
 | **RAG** | Custom chunking, mock/API embeddings, cosine similarity retrieval |
-| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS |
+| **Frontend** | React 19, TypeScript, Vite 7, Tailwind CSS v4 |
 | **Streaming** | Server-Sent Events (SSE) |
 
 Design: modular monolith. Single API process; agents, RAG, and AI flows run in-process. Tenant isolation via `X-Tenant-ID` on all data access.
@@ -48,7 +48,7 @@ Design: modular monolith. Single API process; agents, RAG, and AI flows run in-p
                                         │ HTTP/SSE
                                         ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  FastAPI Application (api/app/api.py)                                        │
+│  FastAPI Application (api/app/http/app.py)                                   │
 │  Middleware: Request ID, CORS, Security headers, Prometheus, Rate limit,    │
 │              API key (prod), Exception handlers                               │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -58,7 +58,7 @@ Design: modular monolith. Single API process; agents, RAG, and AI flows run in-p
 ┌───────────────────┐       ┌─────────────────────┐       ┌───────────────────┐
 │  Agent (LangGraph) │       │  RAG Pipeline       │       │  AI Flows          │
 │  react_agent.py   │       │  rag/pipeline.py    │       │  services_ai_     │
-│  Tools: calc,     │       │  chunking.py        │       │  flows.py         │
+│  Tools: calc,     │       │  chunking.py        │       │  flows/           │
 │  search, doc      │       │  embeddings.py      │       │  Notary, Classify, │
 │  lookup           │       │  Cosine similarity  │       │  Ask              │
 └───────────────────┘       └─────────────────────┘       └───────────────────┘
@@ -66,9 +66,8 @@ Design: modular monolith. Single API process; agents, RAG, and AI flows run in-p
         └───────────────────────────────┼───────────────────────────────┘
                                         ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  LLM Client (services_llm.py)                                               │
-│  Ollama: ChatOllama via langchain-ollama                                    │
-│  OpenAI-compatible: ChatOpenAI via langchain-openai, base_url/v1             │
+│  LLM Client (services_llm.py facade over app/llm/)                           │
+│  Ollama adapter and OpenAI-compatible adapter with shared transport policy    │
 └─────────────────────────────────────────────────────────────────────────────┘
                                         │
         ┌───────────────────────────────┼───────────────────────────────┐
@@ -110,6 +109,28 @@ api/app/
 │       ├── calculator.py
 │       ├── search.py
 │       └── document_lookup.py
+├── documents/        # Document domain services and upload normalization
+│   └── service.py
+├── flows/            # Per-workflow orchestration and audit persistence
+│   ├── ask.py
+│   ├── classify.py
+│   ├── common.py
+│   └── notary.py
+├── http/             # HTTP assembly and delivery layer
+│   ├── app.py
+│   ├── middleware.py
+│   ├── dependencies.py
+│   ├── sse.py
+│   └── routers/
+│       ├── documents.py
+│       ├── workflows.py
+│       ├── rag.py
+│       ├── agents.py
+│       └── health.py
+├── llm/              # Provider adapters and shared LLM result/error types
+│   ├── errors.py
+│   ├── providers.py
+│   └── types.py
 ├── rag/
 │   ├── chunking.py
 │   ├── embeddings.py
@@ -119,12 +140,12 @@ api/app/
 │   ├── logging.py
 │   ├── metrics.py
 │   └── redis.py
-├── api.py            # FastAPI app, routes, middleware
+├── api.py            # Compatibility entrypoint for app/create_app
 ├── db.py
 ├── models.py
 ├── schemas.py
-├── services_ai_flows.py
-├── services_llm.py
+├── services_ai_flows.py  # Compatibility facade over flows/
+├── services_llm.py       # Compatibility facade over llm/
 ├── services_rag.py
 └── audit.py
 ```
@@ -176,7 +197,7 @@ If the final answer is malformed (tool-call JSON), empty, or "No response.", the
 `RAGPipeline.index_document`:
 
 1. **Chunk**: `chunk_text(text, chunk_size=500, chunk_overlap=50)` in `rag/chunking.py`. Splits on sentence boundaries (`.` or `\n`) when possible.
-2. **Embed**: `embedding_service.embed(chunk)` for each chunk. Currently `mock` (deterministic hash-based vectors of `embedding_dimension`).
+2. **Embed**: `embedding_service.embed(chunk)` concurrently for indexed chunks. Currently `mock` (deterministic hash-based vectors of `embedding_dimension`).
 3. **Store**: Delete existing chunks for the document; insert new `DocumentChunk` rows (tenant_id, document_id, chunk_index, text, embedding as JSON).
 
 ### 5.2 Retrieval
@@ -184,9 +205,10 @@ If the final answer is malformed (tool-call JSON), empty, or "No response.", the
 `RAGPipeline.retrieve`:
 
 1. Embed the query.
-2. Load all chunks (optionally filtered by `document_ids`).
+2. Load chunk fields only (optionally filtered by `document_ids`), not full ORM rows.
 3. Compute cosine similarity between query embedding and each chunk embedding.
-4. Sort by score descending; return top_k chunks with `text`, `document_id`, `chunk_index`, `score`.
+4. Maintain a top-k heap instead of sorting the full candidate set.
+5. Return the highest scoring chunks with `text`, `document_id`, `chunk_index`, `score`.
 
 ### 5.3 Query Flow
 
@@ -227,8 +249,8 @@ All AI flows log to `ai_call_audit`: tenant_id, flow_name, success, request_payl
 
 ### 7.1 Stack
 
-- React 18, TypeScript
-- Vite 5, Tailwind CSS
+- React 19, TypeScript
+- Vite 7, Tailwind CSS v4
 - Vitest, jsdom for tests
 
 ### 7.2 Structure

@@ -10,7 +10,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_agent_chat_returns_200_with_answer(client, tenant_headers):
     """POST /ai/agents/chat returns 200 with answer and tools_used."""
-    with patch("app.api.run_agent", new_callable=AsyncMock) as mock_run:
+    with patch("app.http.routers.agents.run_agent", new_callable=AsyncMock) as mock_run:
         mock_run.return_value = {
             "answer": "The answer is 4.",
             "tools_used": ["calculator_tool"],
@@ -51,7 +51,7 @@ async def test_agent_chat_validates_message_max_length(client, tenant_headers):
 @pytest.mark.asyncio
 async def test_agent_chat_stream_returns_sse(client, tenant_headers):
     """POST /ai/agents/chat/stream returns SSE streaming."""
-    with patch("app.api.run_agent_stream") as mock_stream:
+    with patch("app.http.routers.agents.run_agent_stream") as mock_stream:
 
         async def fake_stream(*args, **kwargs):
             yield "The "
@@ -93,7 +93,7 @@ async def test_agent_chat_returns_fallback_when_llm_not_configured(client, tenan
 @pytest.mark.asyncio
 async def test_agent_chat_stream_handles_errors(client, tenant_headers):
     """POST /ai/agents/chat/stream yields error event on exception."""
-    with patch("app.api.run_agent_stream") as mock_stream:
+    with patch("app.http.routers.agents.run_agent_stream") as mock_stream:
 
         async def fail_stream(*args, **kwargs):
             raise RuntimeError("Agent failed")

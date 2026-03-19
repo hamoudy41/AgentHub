@@ -467,7 +467,7 @@ async def test_documents_get_uses_cache_when_available(client, tenant_headers):
         }
     ).decode()
 
-    with patch("app.api.get_cached", new_callable=AsyncMock) as mock_get:
+    with patch("app.http.routers.documents.get_cached", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = cached
         r = await client.get(
             "/api/v1/documents/cached-doc",
@@ -482,7 +482,7 @@ async def test_ask_stream_yields_error_on_ai_flow_error(client, tenant_headers):
     """ask/stream yields error event when AiFlowError occurs."""
     from app.services_ai_flows import AiFlowError
 
-    with patch("app.api.run_ask_flow_stream") as mock_stream:
+    with patch("app.http.routers.workflows.run_ask_flow_stream") as mock_stream:
 
         async def fail_stream(*args, **kwargs):
             raise AiFlowError("LLM failed")
