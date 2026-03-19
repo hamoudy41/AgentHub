@@ -46,5 +46,5 @@ dev = [
     "httpx[cli]>=0.27.0",
     "pytest-asyncio>=0.23.0",
     "pre-commit>=4.0.0",
-    "ruff==0.15.0",
+    "ruff==0.15.7",
 ]
