@@ -1,5 +1,3 @@
-"""Tests for RAG query flows (run_rag_query_flow, run_rag_query_flow_stream)."""
-
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch

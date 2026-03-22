@@ -1,5 +1,3 @@
-"""Tests for config/Settings behavior."""
-
 from __future__ import annotations
 
 

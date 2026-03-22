@@ -1,5 +1,3 @@
-"""Tests for calculator_tool safety and basic behavior."""
-
 from __future__ import annotations
 
 from app.agents.tools.calculator import calculator_tool

@@ -1,5 +1,3 @@
-"""Tests for RAG pipeline and API (TDD)."""
-
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -7,24 +5,18 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 
-# --- Chunking tests ---
-
-
 def test_chunk_text_splits_by_size():
-    """Chunking splits text into chunks of configured size with overlap."""
     from app.rag.chunking import chunk_text
 
     text = "A" * 1000
     chunks = chunk_text(text, chunk_size=200, chunk_overlap=50)
     assert len(chunks) >= 4
     assert all(len(c) <= 250 for c in chunks)
-    # All content should appear (possibly with overlap)
     combined = "".join(chunks)
     assert "A" * 100 in combined
 
 
 def test_chunk_text_respects_sentence_boundaries():
-    """Chunking prefers to split at sentence boundaries when possible."""
     from app.rag.chunking import chunk_text
 
     text = "First sentence. Second sentence. Third sentence. Fourth."
@@ -33,12 +25,8 @@ def test_chunk_text_respects_sentence_boundaries():
     assert any(c.strip().endswith(".") for c in chunks)
 
 
-# --- Embedding service tests ---
-
-
 @pytest.mark.asyncio
 async def test_embedding_service_returns_fixed_dimension():
-    """Embedding service returns vectors of consistent dimension."""
     from types import SimpleNamespace
 
     with patch("app.rag.embeddings.get_settings") as mock_settings:
@@ -55,7 +43,6 @@ async def test_embedding_service_returns_fixed_dimension():
 
 @pytest.mark.asyncio
 async def test_embedding_service_same_text_same_vector():
-    """Embedding service returns same vector for same text (deterministic mock)."""
     from types import SimpleNamespace
 
     with patch("app.rag.embeddings.get_settings") as mock_settings:
@@ -70,12 +57,8 @@ async def test_embedding_service_same_text_same_vector():
         assert v1 == v2
 
 
-# --- API tests ---
-
-
 @pytest.mark.asyncio
 async def test_rag_query_endpoint_returns_200(client, tenant_headers):
-    """POST /ai/rag/query returns 200 with answer."""
     with patch("app.http.routers.rag.run_rag_query_flow", new_callable=AsyncMock) as mock_flow:
         mock_flow.return_value = {"answer": "Paris", "sources": [], "model": "llama3.2"}
 
@@ -92,7 +75,6 @@ async def test_rag_query_endpoint_returns_200(client, tenant_headers):
 
 @pytest.mark.asyncio
 async def test_rag_query_endpoint_validates_payload(client, tenant_headers):
-    """POST /ai/rag/query returns 422 for empty query."""
     r = await client.post(
         "/api/v1/ai/rag/query",
         headers=tenant_headers,
@@ -103,7 +85,6 @@ async def test_rag_query_endpoint_validates_payload(client, tenant_headers):
 
 @pytest.mark.asyncio
 async def test_rag_query_endpoint_accepts_document_ids_filter(client, tenant_headers):
-    """POST /ai/rag/query accepts optional document_ids to scope search."""
     with patch("app.http.routers.rag.run_rag_query_flow", new_callable=AsyncMock) as mock_flow:
         mock_flow.return_value = {"answer": "From doc1", "sources": [], "model": "llama3.2"}
 
@@ -120,7 +101,6 @@ async def test_rag_query_endpoint_accepts_document_ids_filter(client, tenant_hea
 
 @pytest.mark.asyncio
 async def test_rag_index_endpoint_indexes_document(client, tenant_headers):
-    """POST /ai/rag/index indexes a document for RAG search."""
     await client.post(
         "/api/v1/documents",
         headers=tenant_headers,
@@ -140,7 +120,6 @@ async def test_rag_index_endpoint_indexes_document(client, tenant_headers):
 
 @pytest.mark.asyncio
 async def test_rag_query_stream_endpoint_returns_sse(client, tenant_headers):
-    """POST /ai/rag/query/stream returns SSE streaming response."""
     with patch("app.http.routers.rag.run_rag_query_flow_stream") as mock_stream:
 
         async def fake_stream(*args, **kwargs):

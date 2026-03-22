@@ -1,4 +1,4 @@
-"""Security utilities for input validation and prompt injection detection."""
+"""Input validation and prompt-injection heuristics for LLM-facing text."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from .core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Patterns that indicate potential prompt injection attempts
 _INJECTION_PATTERNS = [
     r"ignore\s+(all\s+)?previous\s+(instructions|commands|prompts)",
     r"disregard\s+(all\s+)?previous\s+(instructions|commands|prompts)",
@@ -19,8 +18,8 @@ _INJECTION_PATTERNS = [
     r"new\s+instructions?:",
     r"system\s*:\s*",
     r"assistant\s*:\s*",
-    r"<\|.*?\|>",  # Special tokens
-    r"\[INST\]",  # Llama instruction markers
+    r"<\|.*?\|>",
+    r"\[INST\]",
     r"\[/INST\]",
     r"###\s*instruction",
     r"###\s*system",
@@ -30,17 +29,6 @@ _COMPILED_PATTERNS = [re.compile(pattern, re.IGNORECASE) for pattern in _INJECTI
 
 
 def detect_prompt_injection(text: str) -> tuple[bool, Optional[str]]:
-    """
-    Detect potential prompt injection attacks in user input.
-
-    Args:
-        text: User input text to check
-
-    Returns:
-        Tuple of (is_suspicious, matched_pattern)
-        - is_suspicious: True if injection detected
-        - matched_pattern: The pattern that matched, or None
-    """
     if not text:
         return False, None
 
@@ -58,21 +46,6 @@ def sanitize_user_input(
     check_injection: bool = True,
     tenant_id: str = "default",
 ) -> str:
-    """
-    Sanitize user input for use in LLM prompts.
-
-    Args:
-        text: User input text
-        max_length: Maximum allowed length
-        check_injection: Whether to check for prompt injection
-        tenant_id: Tenant ID for logging
-
-    Returns:
-        Sanitized text
-
-    Raises:
-        ValueError: If input fails validation
-    """
     if not text or not text.strip():
         raise ValueError("Input text cannot be empty")
 
@@ -102,24 +75,12 @@ def sanitize_user_input(
 
 
 def sanitize_for_logging(value: str, max_length: int = 200) -> str:
-    """
-    Sanitize a value for safe logging (truncate, remove sensitive patterns).
-
-    Args:
-        value: Value to sanitize
-        max_length: Maximum length to log
-
-    Returns:
-        Sanitized value safe for logging
-    """
     if not value:
         return ""
 
-    # Truncate
     if len(value) > max_length:
         value = value[:max_length] + "..."
 
-    # Remove potential API keys (simple pattern)
     value = re.sub(r"\bsk-[a-zA-Z0-9]{40,}\b", "[REDACTED_API_KEY]", value)
     value = re.sub(r"\bBearer\s+[a-zA-Z0-9._-]+", "Bearer [REDACTED]", value)
 

@@ -65,7 +65,7 @@ async function parseError(r: Response): Promise<string> {
     if (typeof d === 'string') return d
     if (Array.isArray(d) && d[0]?.msg) return d[0].msg
   } catch {
-    /* ignore parse errors */
+    // JSON may not be valid
   }
   return text || `Request failed (${r.status})`
 }
@@ -337,7 +337,7 @@ export async function* agentChatStream(
     try {
       reader.releaseLock()
     } catch {
-      /* ignore */
+      // reader may already be released
     }
   }
 }

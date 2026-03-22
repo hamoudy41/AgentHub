@@ -1,5 +1,3 @@
-"""Circuit breaker pattern for resilient external service calls."""
-
 from __future__ import annotations
 
 import time
@@ -13,36 +11,29 @@ logger = get_logger(__name__)
 
 
 class CircuitState(str, Enum):
-    """Circuit breaker states."""
-
-    CLOSED = "closed"  # Normal operation
-    OPEN = "open"  # Failures detected, blocking requests
-    HALF_OPEN = "half_open"  # Testing if service recovered
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
 
 
 def _circuit_state_to_metric(state: CircuitState) -> int:
-    """Convert circuit state to metric value."""
     if state == CircuitState.CLOSED:
         return 0
     elif state == CircuitState.HALF_OPEN:
         return 1
-    else:  # OPEN
+    else:
         return 2
 
 
 @dataclass
 class CircuitBreakerConfig:
-    """Configuration for circuit breaker."""
-
-    failure_threshold: int = 5  # Number of failures before opening
-    recovery_timeout: float = 60.0  # Seconds before attempting recovery
-    success_threshold: int = 2  # Successful calls needed to close from half-open
-    timeout_seconds: float = 60.0  # Request timeout
+    failure_threshold: int = 5
+    recovery_timeout: float = 60.0
+    success_threshold: int = 2
+    timeout_seconds: float = 60.0
 
 
 class CircuitBreaker:
-    """Circuit breaker for protecting against cascading failures."""
-
     def __init__(self, name: str, config: CircuitBreakerConfig | None = None):
         self.name = name
         self.config = config or CircuitBreakerConfig()
@@ -53,7 +44,6 @@ class CircuitBreaker:
         self._update_metrics()
 
     def _update_metrics(self) -> None:
-        """Update prometheus metrics for current state."""
         try:
             from .core.metrics import CIRCUIT_BREAKER_STATE
 
@@ -61,21 +51,14 @@ class CircuitBreaker:
                 _circuit_state_to_metric(self.state)
             )
         except ImportError:
-            pass  # Metrics not available
+            pass
 
     def _should_attempt_reset(self) -> bool:
-        """Check if enough time has passed to attempt recovery."""
         if self.last_failure_time is None:
             return True
         return (time.time() - self.last_failure_time) >= self.config.recovery_timeout
 
     def can_execute(self) -> tuple[bool, str | None]:
-        """
-        Check if request can be executed.
-
-        Returns:
-            Tuple of (can_execute, reason)
-        """
         if self.state == CircuitState.CLOSED:
             return True, None
 
@@ -92,11 +75,9 @@ class CircuitBreaker:
                 return True, None
             return False, f"Circuit {self.name} is OPEN"
 
-        # HALF_OPEN state
         return True, None
 
     def record_success(self) -> None:
-        """Record a successful call."""
         if self.state == CircuitState.HALF_OPEN:
             self.success_count += 1
             if self.success_count >= self.config.success_threshold:
@@ -111,15 +92,12 @@ class CircuitBreaker:
                 self.last_failure_time = None
                 self._update_metrics()
         elif self.state == CircuitState.CLOSED:
-            # Reset failure count on success in closed state
             if self.failure_count > 0:
                 self.failure_count = 0
 
     def record_failure(self) -> None:
-        """Record a failed call."""
         self.last_failure_time = time.time()
 
-        # Record failure in metrics
         try:
             from .core.metrics import CIRCUIT_BREAKER_FAILURES
 
@@ -149,7 +127,6 @@ class CircuitBreaker:
             self._update_metrics()
 
     def get_state(self) -> dict[str, Any]:
-        """Get current circuit breaker state for monitoring."""
         return {
             "name": self.name,
             "state": self.state,
@@ -160,6 +137,4 @@ class CircuitBreaker:
 
 
 class CircuitBreakerOpen(Exception):
-    """Raised when circuit breaker is open."""
-
     pass

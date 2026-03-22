@@ -1,5 +1,3 @@
-"""Prompt strings used by the agent stack."""
-
 REACT_SYSTEM_PROMPT = """\
 You are a helpful AI assistant with access to tools.
 

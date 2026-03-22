@@ -1,5 +1,3 @@
-"""Tests for ReAct agent (run_agent, run_agent_stream) - TDD."""
-
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -608,13 +606,11 @@ async def test_run_agent_logs_exception_when_calculator_fails_for_math_intent():
             message="average of 1, 2, 3, 4",
             get_document_fn=AsyncMock(return_value=None),
         )
-        # Verify exception was logged
         mock_logger.warning.assert_called_once()
         call_args = mock_logger.warning.call_args
         assert call_args[0][0] == "react_agent.math_intent_failed"
         assert "Calculator service unavailable" in call_args[1]["error"]
         assert call_args[1]["intent"] == "average"
-        # Verify agent was called as fallback
         assert result["answer"] == "I'll help with that."
 
 
@@ -645,11 +641,9 @@ async def test_run_agent_stream_logs_exception_when_calculator_fails_for_math_in
         ):
             tokens.append(t)
 
-        # Verify exception was logged
         mock_logger.warning.assert_called_once()
         call_args = mock_logger.warning.call_args
         assert call_args[0][0] == "react_agent.math_intent_failed"
         assert "Calculator service unavailable" in call_args[1]["error"]
         assert call_args[1]["intent"] == "sum"
-        # Verify agent stream was called as fallback
         assert "".join(tokens) == "Calculated result."

@@ -1,5 +1,3 @@
-"""ReAct agent with LangGraph - tools: calculator, search, document lookup."""
-
 from __future__ import annotations
 
 import re
@@ -25,7 +23,6 @@ GetDocumentFn = Callable[[str, str], Awaitable[dict[str, Any] | None]]
 
 
 def _translate_math_intent(message: str) -> tuple[str, str] | None:
-    """Parse natural-language math (average, mean, sum, product) into (expression, intent)."""
     msg_lower = message.lower().strip()
     numbers = re.findall(r"-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?", message)
     nums = [float(n.replace(",", "")) for n in numbers]
@@ -49,7 +46,6 @@ def _translate_math_intent(message: str) -> tuple[str, str] | None:
 
 
 def _is_malformed(text: str) -> bool:
-    """True if text looks like malformed tool-call JSON."""
     if not isinstance(text, str):
         return False
     t = text.strip()
@@ -69,7 +65,6 @@ _STOP_WORDS = frozenset(
 
 
 def _search_query_from_message(message: str) -> str:
-    """Derive a focused search query from the user message."""
     q = message.strip().rstrip("?.").strip()
     if not q:
         return message
@@ -102,13 +97,10 @@ def _search_query_from_message(message: str) -> str:
 
 
 class AgentState(TypedDict):
-    """State for the ReAct agent."""
-
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
 
 def _create_agent_graph(tools: list) -> Any:
-    """Build the ReAct graph with given tools."""
     from app.core.config import get_settings
 
     settings = get_settings()
@@ -147,14 +139,12 @@ def agent_graph(
     tenant_id: str,
     get_document_fn: GetDocumentFn,
 ) -> Any:
-    """Create the agent graph with document lookup bound to tenant."""
     doc_tool = create_document_lookup_tool(tenant_id, get_document_fn)
     tools = BASE_TOOLS + [doc_tool]
     return _create_agent_graph(tools)
 
 
 def _get_model_without_tools() -> Any:
-    """Get chat model without tool binding, for summarization."""
     from app.core.config import get_settings
 
     settings = get_settings()
@@ -167,7 +157,6 @@ async def _summarize_search_results(
     search_content: str,
     strict_english: bool,
 ) -> str | None:
-    """Summarize search results for a user question."""
     model = _get_model_without_tools()
     if not model:
         return None
@@ -214,7 +203,6 @@ WebFallbackStatus = Literal["ok", "no_results", "search_failed", "summarize_fail
 
 
 async def _web_fallback_answer(message: str) -> tuple[str | None, WebFallbackStatus]:
-    """Try answering by searching the web and summarizing results."""
     query = _search_query_from_message(message)
     try:
         search_content = search_web(query)
@@ -248,8 +236,6 @@ async def run_agent(
     message: str,
     get_document_fn: GetDocumentFn,
 ) -> dict[str, Any]:
-    """Run the agent and return the final response."""
-    # Sanitize user input for security
     try:
         message = sanitize_user_input(
             message,
@@ -352,8 +338,6 @@ async def run_agent_stream(
     message: str,
     get_document_fn: GetDocumentFn,
 ) -> AsyncIterator[str]:
-    """Stream agent response tokens."""
-    # Sanitize user input for security (match run_agent behavior)
     try:
         message = sanitize_user_input(
             message,

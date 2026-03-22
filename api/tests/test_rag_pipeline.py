@@ -1,5 +1,3 @@
-"""Tests for RAG pipeline (index_document, retrieve, get_chunks)."""
-
 from __future__ import annotations
 
 from unittest.mock import patch

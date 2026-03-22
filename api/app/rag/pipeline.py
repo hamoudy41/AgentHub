@@ -1,5 +1,3 @@
-"""RAG pipeline: indexing, retrieval, and query."""
-
 from __future__ import annotations
 
 import asyncio
@@ -17,7 +15,6 @@ from .embeddings import embedding_service
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Compute cosine similarity between two vectors."""
     if not a or not b or len(a) != len(b):
         return 0.0
     dot = sum(x * y for x, y in zip(a, b))
@@ -29,8 +26,6 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 class RAGPipeline:
-    """Pipeline for indexing documents and retrieving relevant chunks."""
-
     async def index_document(
         self,
         *,
@@ -39,7 +34,6 @@ class RAGPipeline:
         text: str,
         db: AsyncSession | None = None,
     ) -> int:
-        """Index a document: chunk, embed, and store. Returns number of chunks indexed."""
         chunks = chunk_text(text, chunk_size=500, chunk_overlap=50)
         if not chunks:
             return 0
@@ -81,7 +75,6 @@ class RAGPipeline:
         document_ids: list[str] | None = None,
         db: AsyncSession | None = None,
     ) -> list[dict[str, Any]]:
-        """Retrieve top_k chunks most similar to query."""
         query_vec = await embedding_service.embed(query)
         factory = get_session_factory()
 
@@ -133,7 +126,6 @@ class RAGPipeline:
         document_id: str,
         db: AsyncSession | None = None,
     ) -> list[dict[str, Any]]:
-        """Get all chunks for a document (for testing)."""
         factory = get_session_factory()
 
         async def _do(session: AsyncSession) -> list[dict[str, Any]]:

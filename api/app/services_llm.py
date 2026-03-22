@@ -55,7 +55,6 @@ class LLMClient:
         return bool(self._settings.llm_base_url and self._settings.llm_provider)
 
     def get_circuit_breaker_status(self) -> dict[str, Any]:
-        """Get status of all circuit breakers for monitoring."""
         return {provider: cb.get_state() for provider, cb in self._circuit_breakers.items()}
 
     def _provider_key(self) -> str:
@@ -115,7 +114,6 @@ class LLMClient:
         system_prompt: Optional[str] = None,
         tenant_id: str = "default",
     ) -> AsyncIterator[str]:
-        """Stream LLM tokens one chunk at a time. Raises LLMNotConfiguredError if not configured."""
         if not self.is_configured():
             raise LLMNotConfiguredError(
                 "LLM not configured. Set LLM_PROVIDER and LLM_BASE_URL (e.g. ollama + http://localhost:11434)."

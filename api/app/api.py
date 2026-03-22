@@ -1,8 +1,4 @@
-"""Backward-compatible application entrypoint.
-
-The HTTP layer now lives under `app.http`, but `app.api` stays as the stable import
-surface for the application factory used by tests and deployment entrypoints.
-"""
+"""Stable import surface for `create_app` / `app` (implementation lives in `app.http`)."""
 
 from .http.app import app, create_app
 

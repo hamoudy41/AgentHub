@@ -1,8 +1,4 @@
-"""LangChain chat-model creation for the agent stack.
-
-This module isolates provider-specific wiring (Ollama vs OpenAI-compatible) and keeps
-`react_agent.py` focused on orchestration.
-"""
+"""LangChain chat-model creation (Ollama vs OpenAI-compatible)."""
 
 from __future__ import annotations
 
@@ -14,7 +10,6 @@ from app.core.config import Settings
 
 
 def _filter_init_kwargs(cls: type, kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Drop kwargs not accepted by a class' `__init__` (helps across dependency versions)."""
     try:
         sig = inspect.signature(cls.__init__)
     except Exception:
@@ -47,13 +42,11 @@ def _cached_chat_model(
             "temperature": 0,
             "num_ctx": 2048,
             "num_predict": 512,
-            # Some versions use `timeout`, others `request_timeout`.
             "timeout": timeout_seconds,
             "request_timeout": timeout_seconds,
         }
         return ChatOllama(**_filter_init_kwargs(ChatOllama, kwargs))
 
-    # openai_compatible
     from langchain_openai import ChatOpenAI
 
     kwargs = {
@@ -68,7 +61,6 @@ def _cached_chat_model(
 
 
 def create_chat_model(settings: Settings) -> Any:
-    """Create a configured LangChain chat model based on current settings."""
     if not settings.llm_base_url or not settings.llm_provider:
         return None
 

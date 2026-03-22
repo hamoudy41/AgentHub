@@ -1,5 +1,3 @@
-"""Document chunking for RAG."""
-
 from __future__ import annotations
 
 
@@ -9,7 +7,6 @@ def chunk_text(
     chunk_size: int = 500,
     chunk_overlap: int = 50,
 ) -> list[str]:
-    """Split text into overlapping chunks, preferring sentence boundaries."""
     if not text or not text.strip():
         return []
     text = text.strip()

@@ -1,5 +1,3 @@
-"""Tests for Redis module (cache, rate limit, ping)."""
-
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
