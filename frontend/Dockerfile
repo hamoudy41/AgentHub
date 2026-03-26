@@ -1,6 +1,6 @@
 # Keep the builder on Node 22 because this image path relies on bundled
 # corepack for pnpm, and Node 25+ no longer ships that binary.
-FROM node:22-alpine AS builder
+FROM node:25-alpine AS builder
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
