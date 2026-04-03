@@ -1,51 +1,105 @@
-from __future__ import annotations
+from typing import AsyncIterator
+from typing_extensions import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents import run_agent, run_agent_stream
+from app.core import config as core_config
+from app.core.context import ExecutionContext, clear_execution_context, set_execution_context
 from app.db import get_db_session
-from app.documents import fetch_document_payload
 from app.http.sse import stream_text_tokens
+from app.persistence.repositories.document import DocumentRepository
 from app.schemas import AgentChatRequest, AgentChatResponse
+from app.services.agent_service import AgentService
+from app.services.memory_service import MemoryService
+from app.services.tool_service import ToolService
+
+
+def _build_agent_service(db: AsyncSession) -> AgentService:
+    return AgentService(
+        tool_service=ToolService(),
+        memory_service=MemoryService(),
+        document_repository=DocumentRepository(db),
+    )
+
+
+async def run_agent(*, tenant_id: str, message: str, db: AsyncSession) -> dict[str, object]:
+    settings = core_config.get_settings()
+    if not settings.llm_provider or not settings.llm_base_url:
+        return {
+            "answer": "LLM not configured. Set LLM_PROVIDER and LLM_BASE_URL.",
+            "tools_used": [],
+            "error": "llm_not_configured",
+        }
+
+    ctx = ExecutionContext.from_request(tenant_id=tenant_id)
+    set_execution_context(ctx)
+    service = _build_agent_service(db)
+    agent_id = f"default-{tenant_id}"
+
+    try:
+        try:
+            service.get_agent(agent_id, context=ctx)
+        except Exception:
+            service.create_agent(
+                agent_id=agent_id,
+                name="DefaultAgent",
+                model="default",
+                context=ctx,
+            )
+
+        result = await service.execute_agent(agent_id, message, context=ctx)
+        return {
+            "answer": result.get("result", ""),
+            "tools_used": result.get("tools_used", []),
+            "error": None,
+        }
+    finally:
+        clear_execution_context()
+
+
+async def run_agent_stream(*, tenant_id: str, message: str, db: AsyncSession) -> AsyncIterator[str]:
+    result = await run_agent(tenant_id=tenant_id, message=message, db=db)
+    text = str(result.get("answer", ""))
+    for token in text.split(" "):
+        if token:
+            yield f"{token} "
 
 
 def build_agent_router(get_tenant_id) -> APIRouter:
     router = APIRouter(tags=["agents"])
 
-    @router.post("/ai/agents/chat", response_model=AgentChatResponse)
+    @router.post("/ai/agents/chat")
     async def agent_chat(
         payload: AgentChatRequest,
-        tenant_id: str = Depends(get_tenant_id),
-        db: AsyncSession = Depends(get_db_session),
+        tenant_id: Annotated[str, Depends(get_tenant_id)],
+        db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> AgentChatResponse:
-        async def get_document(document_id: str, request_tenant_id: str) -> dict | None:
-            return await fetch_document_payload(db, request_tenant_id, document_id)
-
-        result = await run_agent(
-            tenant_id=tenant_id,
-            message=payload.message,
-            get_document_fn=get_document,
+        result = await run_agent(tenant_id=tenant_id, message=payload.message, db=db)
+        return AgentChatResponse(
+            answer=str(result.get("answer", "")),
+            tools_used=list(result.get("tools_used", [])),
+            error=result.get("error"),
         )
-        return AgentChatResponse(**result)
 
     @router.post("/ai/agents/chat/stream")
     async def agent_chat_stream(
         payload: AgentChatRequest,
-        tenant_id: str = Depends(get_tenant_id),
-        db: AsyncSession = Depends(get_db_session),
+        tenant_id: Annotated[str, Depends(get_tenant_id)],
+        db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> StreamingResponse:
-        async def get_document(document_id: str, request_tenant_id: str) -> dict | None:
-            return await fetch_document_payload(db, request_tenant_id, document_id)
+        async def _stream() -> AsyncIterator[str]:
+            async for token in run_agent_stream(
+                tenant_id=tenant_id,
+                message=payload.message,
+                db=db,
+            ):
+                yield token
 
         return StreamingResponse(
             stream_text_tokens(
-                run_agent_stream(
-                    tenant_id=tenant_id,
-                    message=payload.message,
-                    get_document_fn=get_document,
-                ),
+                _stream(),
             ),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

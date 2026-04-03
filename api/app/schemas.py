@@ -1,9 +1,18 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+
+class AuditLogCreate(BaseModel):
+    tenant_id: str
+    flow_name: str
+    request_payload: dict[str, Any] = Field(default_factory=dict)
+    response_payload: dict[str, Any] = Field(default_factory=dict)
+    success: bool
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class DocumentCreate(BaseModel):
@@ -34,7 +43,7 @@ class NotarySummary(BaseModel):
 
 
 class NotarySummarizeResponse(BaseModel):
-    document_id: Optional[str]
+    document_id: Optional[str] = None
     summary: NotarySummary
     source: Literal["llm", "fallback"]
     metadata: dict[str, Any] = Field(default_factory=dict)
