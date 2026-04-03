@@ -6,6 +6,15 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 
+class AuditLogCreate(BaseModel):
+    tenant_id: str
+    flow_name: str
+    request_payload: dict[str, Any] = Field(default_factory=dict)
+    response_payload: dict[str, Any] = Field(default_factory=dict)
+    success: bool
+    created_at: datetime = Field(default_factory=lambda: datetime.now())
+
+
 class DocumentCreate(BaseModel):
     id: str = Field(..., min_length=1, max_length=64, description="Unique document ID")
     title: str = Field(..., max_length=255)
@@ -34,7 +43,7 @@ class NotarySummary(BaseModel):
 
 
 class NotarySummarizeResponse(BaseModel):
-    document_id: Optional[str]
+    document_id: Optional[str] = None
     summary: NotarySummary
     source: Literal["llm", "fallback"]
     metadata: dict[str, Any] = Field(default_factory=dict)

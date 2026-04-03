@@ -3,19 +3,23 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import ORJSONResponse
 
+from app.core.errors import AppError
 from app.core.logging import get_logger
-from app.services_ai_flows import AiFlowError
 
 
 logger = get_logger(__name__)
 
 
 def register_error_handlers(app: FastAPI) -> None:
-    @app.exception_handler(AiFlowError)
-    async def ai_flow_error_handler(_: Request, exc: AiFlowError) -> ORJSONResponse:
+    @app.exception_handler(AppError)
+    async def app_error_handler(_: Request, exc: AppError) -> ORJSONResponse:
         return ORJSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={"detail": str(exc), "error_type": "ai_flow_error"},
+            status_code=exc.status_code,
+            content={
+                "detail": str(exc),
+                "error_type": exc.error_code,
+                "details": exc.details,
+            },
         )
 
     @app.exception_handler(Exception)
