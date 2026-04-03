@@ -2,7 +2,7 @@
 asyncio_mode = "auto"
 testpaths = ["api/tests"]
 pythonpath = ["api"]
-addopts = "--cov=app --cov-report=term-missing --cov-branch --cov-fail-under=67"
+addopts = "--cov=app --cov-report=term-missing --cov-branch --cov-fail-under=90"
 
 [tool.coverage.run]
 source = ["app"]
@@ -10,7 +10,7 @@ branch = true
 omit = ["*/app/__init__.py", "*/app/main.py"]
 
 [tool.coverage.report]
-fail_under = 67
+fail_under = 90
 show_missing = true
 
 [tool.ruff]
