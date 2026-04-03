@@ -281,7 +281,7 @@ function getStreamReader(response: Response): ReadableStreamDefaultReader<Uint8A
     return response.body.getReader()
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
-    throw new Error(`Stream error: ${msg}`)
+    throw new Error(`Stream error: ${msg}`, { cause: err })
   }
 }
 
@@ -292,7 +292,7 @@ async function readStreamChunk(
     return await reader.read()
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
-    throw new Error(`Stream error: ${msg}`)
+    throw new Error(`Stream error: ${msg}`, { cause: err })
   }
 }
 
