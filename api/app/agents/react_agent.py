@@ -20,6 +20,33 @@ from .tools.search import SearchToolError, SearchToolNoResults, search_web
 logger = get_logger(__name__)
 
 GetDocumentFn = Callable[[str, str], Awaitable[dict[str, Any] | None]]
+NO_RESPONSE = "No response."
+
+
+def _math_label(intent: str) -> str:
+    return {"average": "average", "sum": "sum", "product": "product"}.get(intent, "result")
+
+
+def _math_answer(intent: str, result: str) -> str:
+    if result.startswith("Error:"):
+        return result
+    return f"The {_math_label(intent)} is {result}."
+
+
+def _try_math_shortcut(message: str) -> dict[str, Any] | None:
+    translated = _translate_math_intent(message)
+    if not translated:
+        return None
+
+    expr, intent = translated
+    try:
+        result = calculator_tool.invoke({"expression": expr})
+        return {"answer": _math_answer(intent, result), "tools_used": ["calculator_tool"]}
+    except Exception as e:
+        logger.warning(
+            "react_agent.math_intent_failed", error=str(e), expression=expr, intent=intent
+        )
+        return None
 
 
 def _translate_math_intent(message: str) -> tuple[str, str] | None:
@@ -88,7 +115,6 @@ def _search_query_from_message(message: str) -> str:
     ):
         if lower.startswith(prefix):
             q = q[len(prefix) :].strip()
-            lower = q.lower()
             break
     words = q.split()
     kept = [w for w in words if w.lower() not in _STOP_WORDS]
@@ -231,69 +257,115 @@ async def _web_fallback_answer(message: str) -> tuple[str | None, WebFallbackSta
     return None, "summarize_failed"
 
 
+def _dedupe_tools(tools: list[str]) -> list[str]:
+    return list(dict.fromkeys(tools))
+
+
+def _extract_result(res: dict[str, Any]) -> tuple[str, list[str]]:
+    messages = res.get("messages") or []
+    final: str | None = None
+    used: list[str] = []
+
+    for m in reversed(messages):
+        if isinstance(m, AIMessage):
+            content = m.content
+            final = content if isinstance(content, str) else str(content)
+            final = final.strip() or NO_RESPONSE
+            break
+
+    for m in messages:
+        if isinstance(m, ToolMessage) and getattr(m, "name", None):
+            used.append(m.name)
+
+    return final or NO_RESPONSE, _dedupe_tools(used)
+
+
+def _validation_error_payload(tenant_id: str, error: ValueError) -> dict[str, Any]:
+    logger.warning("agent.input_validation_failed", tenant_id=tenant_id, error=str(error))
+    return {
+        "answer": "Input validation failed. Please check your input and try again.",
+        "tools_used": [],
+        "error": "input_validation_failed",
+    }
+
+
+def _validate_message(tenant_id: str, message: str) -> str:
+    return sanitize_user_input(
+        message,
+        max_length=4000,
+        check_injection=True,
+        tenant_id=tenant_id,
+    )
+
+
+def _fallback_message(status: WebFallbackStatus) -> str:
+    if status == "summarize_failed":
+        return (
+            "I found some information but couldn't format it properly. "
+            "Try rephrasing your question, or use math (e.g. average of 1,2,5,6) "
+            "or document lookup."
+        )
+    if status == "search_failed":
+        return (
+            "I couldn't perform a web search right now. Try rephrasing your question "
+            "or try again later."
+        )
+    return (
+        "I couldn't find an answer. Try asking again or rephrasing. "
+        "You can also try math (e.g. average of 1,2,5,6) or document lookup."
+    )
+
+
+async def _apply_fallback_if_needed(
+    message: str, answer: str, tools_used: list[str]
+) -> tuple[str, list[str]]:
+    if not (_is_malformed(answer) or not answer or answer == NO_RESPONSE):
+        return answer, tools_used
+
+    summary, status = await _web_fallback_answer(message)
+    if summary:
+        return summary, _dedupe_tools(tools_used + ["search_tool"])
+
+    fallback = _fallback_message(status)
+    if status == "summarize_failed":
+        return fallback, _dedupe_tools(tools_used + ["search_tool"])
+    return fallback, tools_used
+
+
+def _message_text(msg: Any) -> str | None:
+    if isinstance(msg, AIMessage) and msg.content:
+        return msg.content if isinstance(msg.content, str) else str(msg.content)
+    if isinstance(msg, dict):
+        content = msg.get("content")
+        if content:
+            return content if isinstance(content, str) else str(content)
+    return None
+
+
+async def _stream_graph_messages(graph: Any, inputs: dict[str, Any]) -> AsyncIterator[str]:
+    async for msg, _metadata in graph.astream(inputs, stream_mode="messages"):
+        text = _message_text(msg)
+        if text:
+            yield text
+
+
 async def run_agent(
     tenant_id: str,
     message: str,
     get_document_fn: GetDocumentFn,
 ) -> dict[str, Any]:
     try:
-        message = sanitize_user_input(
-            message,
-            max_length=4000,
-            check_injection=True,
-            tenant_id=tenant_id,
-        )
+        message = _validate_message(tenant_id, message)
     except ValueError as e:
-        logger.warning(
-            "agent.input_validation_failed",
-            tenant_id=tenant_id,
-            error=str(e),
-        )
-        return {
-            "answer": "Input validation failed. Please check your input and try again.",
-            "tools_used": [],
-            "error": "input_validation_failed",
-        }
+        return _validation_error_payload(tenant_id, e)
 
-    translated = _translate_math_intent(message)
-    if translated:
-        expr, intent = translated
-        try:
-            result = calculator_tool.invoke({"expression": expr})
-            if result.startswith("Error:"):
-                answer = result
-            else:
-                label = (
-                    "average" if intent == "average" else "sum" if intent == "sum" else "product"
-                )
-                answer = f"The {label} is {result}."
-            return {"answer": answer, "tools_used": ["calculator_tool"]}
-        except Exception as e:
-            logger.warning(
-                "react_agent.math_intent_failed", error=str(e), expression=expr, intent=intent
-            )
+    math_result = _try_math_shortcut(message)
+    if math_result:
+        return math_result
 
     graph = agent_graph(tenant_id, get_document_fn)
     if not graph:
         return {"answer": "LLM not configured.", "tools_used": [], "error": "llm_not_configured"}
-
-    def _extract_result(res: dict[str, Any]) -> tuple[str, list[str]]:
-        messages = res.get("messages") or []
-        final: str | None = None
-        used: list[str] = []
-
-        for m in reversed(messages):
-            if isinstance(m, AIMessage):
-                content = m.content
-                final = content if isinstance(content, str) else str(content)
-                final = final.strip() or "No response."
-                break
-
-        for m in messages:
-            if isinstance(m, ToolMessage) and getattr(m, "name", None):
-                used.append(m.name)
-
-        return final or "No response.", list(dict.fromkeys(used))
 
     inputs = {"messages": [HumanMessage(content=message)]}
     try:
@@ -307,28 +379,7 @@ async def run_agent(
         }
     answer, tools_used = _extract_result(result)
 
-    if _is_malformed(answer) or not answer or answer == "No response.":
-        summary, status = await _web_fallback_answer(message)
-        if summary:
-            answer = summary
-            tools_used = list(dict.fromkeys(tools_used + ["search_tool"]))
-        elif status == "summarize_failed":
-            answer = (
-                "I found some information but couldn't format it properly. "
-                "Try rephrasing your question, or use math (e.g. average of 1,2,5,6) "
-                "or document lookup."
-            )
-            tools_used = list(dict.fromkeys(tools_used + ["search_tool"]))
-        elif status == "search_failed":
-            answer = (
-                "I couldn't perform a web search right now. Try rephrasing your question "
-                "or try again later."
-            )
-        else:
-            answer = (
-                "I couldn't find an answer. Try asking again or rephrasing. "
-                "You can also try math (e.g. average of 1,2,5,6) or document lookup."
-            )
+    answer, tools_used = await _apply_fallback_if_needed(message, answer, tools_used)
 
     return {"answer": answer, "tools_used": tools_used}
 
@@ -339,12 +390,7 @@ async def run_agent_stream(
     get_document_fn: GetDocumentFn,
 ) -> AsyncIterator[str]:
     try:
-        message = sanitize_user_input(
-            message,
-            max_length=4000,
-            check_injection=True,
-            tenant_id=tenant_id,
-        )
+        message = _validate_message(tenant_id, message)
     except ValueError as e:
         logger.warning(
             "agent.input_validation_failed",
@@ -354,24 +400,10 @@ async def run_agent_stream(
         yield "Input validation failed. Please check your input and try again."
         return
 
-    translated = _translate_math_intent(message)
-    if translated:
-        expr, intent = translated
-        try:
-            result = calculator_tool.invoke({"expression": expr})
-            if result.startswith("Error:"):
-                answer = result
-            else:
-                label = (
-                    "average" if intent == "average" else "sum" if intent == "sum" else "product"
-                )
-                answer = f"The {label} is {result}."
-            yield answer
-            return
-        except Exception as e:
-            logger.warning(
-                "react_agent.math_intent_failed", error=str(e), expression=expr, intent=intent
-            )
+    math_result = _try_math_shortcut(message)
+    if math_result:
+        yield str(math_result.get("answer", ""))
+        return
 
     graph = agent_graph(tenant_id, get_document_fn)
     if not graph:
@@ -380,13 +412,8 @@ async def run_agent_stream(
 
     inputs = {"messages": [HumanMessage(content=message)]}
     try:
-        async for msg, metadata in graph.astream(inputs, stream_mode="messages"):
-            if isinstance(msg, AIMessage) and msg.content:
-                yield msg.content if isinstance(msg.content, str) else str(msg.content)
-            elif isinstance(msg, dict):
-                content = msg.get("content")
-                if content:
-                    yield content if isinstance(content, str) else str(content)
+        async for text in _stream_graph_messages(graph, inputs):
+            yield text
     except Exception as e:
         logger.exception("react_agent.graph_stream_failed", tenant_id=tenant_id, error=str(e))
         yield "Something went wrong while generating a response. Please try again."

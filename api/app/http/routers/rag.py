@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 from typing import AsyncGenerator
+from typing_extensions import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -114,8 +113,8 @@ def build_rag_router(get_tenant_id) -> APIRouter:
     @router.post("/ai/rag/query")
     async def rag_query(
         payload: RAGQueryRequest,
-        tenant_id: str = Depends(get_tenant_id),
-        db: AsyncSession = Depends(get_db_session),
+        tenant_id: Annotated[str, Depends(get_tenant_id)],
+        db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> RAGQueryResponse:
         result = await run_rag_query_flow(tenant_id=tenant_id, db=db, payload=payload)
         return RAGQueryResponse(**result)
@@ -123,8 +122,8 @@ def build_rag_router(get_tenant_id) -> APIRouter:
     @router.post("/ai/rag/query/stream")
     async def rag_query_stream(
         payload: RAGQueryRequest,
-        tenant_id: str = Depends(get_tenant_id),
-        db: AsyncSession = Depends(get_db_session),
+        tenant_id: Annotated[str, Depends(get_tenant_id)],
+        db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> StreamingResponse:
         async def _stream() -> AsyncGenerator[str, None]:
             async for token in run_rag_query_flow_stream(
@@ -145,8 +144,8 @@ def build_rag_router(get_tenant_id) -> APIRouter:
     @router.post("/ai/rag/index")
     async def rag_index(
         payload: RAGIndexRequest,
-        tenant_id: str = Depends(get_tenant_id),
-        db: AsyncSession = Depends(get_db_session),
+        tenant_id: Annotated[str, Depends(get_tenant_id)],
+        db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> RAGIndexResponse:
         document = await fetch_document(db, tenant_id, payload.document_id)
         if not document:

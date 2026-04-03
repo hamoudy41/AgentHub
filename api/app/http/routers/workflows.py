@@ -1,7 +1,6 @@
-from __future__ import annotations
-
 import asyncio
 from typing import AsyncIterator
+from typing_extensions import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -139,14 +138,11 @@ async def run_ask_flow_stream(
         clear_execution_context()
 
 
-def build_workflow_router(get_tenant_id) -> APIRouter:
-    router = APIRouter(tags=["workflows"])
-
-    @router.post("/ai/notary/summarize", response_model=NotarySummarizeResponse)
+def _make_notary_handler(get_tenant_id):
     async def notary_summarize(
         payload: NotarySummarizeRequest,
-        tenant_id: str = Depends(get_tenant_id),
-        db: AsyncSession = Depends(get_db_session),
+        tenant_id: Annotated[str, Depends(get_tenant_id)],
+        db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> NotarySummarizeResponse:
         ctx = ExecutionContext.from_request(tenant_id=tenant_id)
         set_execution_context(ctx)
@@ -156,10 +152,8 @@ def build_workflow_router(get_tenant_id) -> APIRouter:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=LLM_CONFIGURATION_ERROR,
                 )
-            # Validate request
             _validate_notary_request(payload, tenant_id)
 
-            # Extract text from document if document_id provided
             text = payload.text
             if payload.document_id:
                 doc_repo = DocumentRepository(db)
@@ -167,15 +161,10 @@ def build_workflow_router(get_tenant_id) -> APIRouter:
                 if doc:
                     text = doc.text
 
-            # Execute with timeout
             try:
                 service = _build_workflow_service(db)
                 result = await asyncio.wait_for(
-                    service.summarize_flow(
-                        text,
-                        max_length=None,
-                        context=ctx,
-                    ),
+                    service.summarize_flow(text, max_length=None, context=ctx),
                     timeout=WORKFLOW_TIMEOUT,
                 )
             except asyncio.TimeoutError:
@@ -184,14 +173,12 @@ def build_workflow_router(get_tenant_id) -> APIRouter:
                     detail="Summarization operation timed out",
                 )
             except Exception:
-                # Backward-compatible fallback while service migration stabilizes.
                 return await services_ai_flows.run_notary_summarization_flow(
                     tenant_id=tenant_id,
                     db=db,
                     payload=payload,
                 )
 
-            # Map result to response schema
             return NotarySummarizeResponse(
                 document_id=payload.document_id,
                 summary={
@@ -212,16 +199,20 @@ def build_workflow_router(get_tenant_id) -> APIRouter:
             raise
         except Exception:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Summarization failed"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Summarization failed",
             )
         finally:
             clear_execution_context()
 
-    @router.post("/ai/classify", response_model=ClassifyResponse)
+    return notary_summarize
+
+
+def _make_classify_handler(get_tenant_id):
     async def classify(
         payload: ClassifyRequest,
-        tenant_id: str = Depends(get_tenant_id),
-        db: AsyncSession = Depends(get_db_session),
+        tenant_id: Annotated[str, Depends(get_tenant_id)],
+        db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> ClassifyResponse:
         ctx = ExecutionContext.from_request(tenant_id=tenant_id)
         set_execution_context(ctx)
@@ -231,10 +222,8 @@ def build_workflow_router(get_tenant_id) -> APIRouter:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=LLM_CONFIGURATION_ERROR,
                 )
-            # Validate request
             _validate_classify_request(payload, tenant_id)
 
-            # Execute with timeout
             try:
                 service = _build_workflow_service(db)
                 result = await asyncio.wait_for(
@@ -251,14 +240,12 @@ def build_workflow_router(get_tenant_id) -> APIRouter:
                     detail="Classification operation timed out",
                 )
             except Exception:
-                # Backward-compatible fallback while service migration stabilizes.
                 return await services_ai_flows.run_classify_flow(
                     tenant_id=tenant_id,
                     db=db,
                     payload=payload,
                 )
 
-            # Map result to response schema
             return ClassifyResponse(
                 label=result.get("predicted_category", payload.candidate_labels[0]),
                 confidence=result.get("confidence_score", 0.0),
@@ -274,16 +261,20 @@ def build_workflow_router(get_tenant_id) -> APIRouter:
             raise
         except Exception:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Classification failed"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Classification failed",
             )
         finally:
             clear_execution_context()
 
-    @router.post("/ai/ask", response_model=AskResponse)
+    return classify
+
+
+def _make_ask_handler(get_tenant_id):
     async def ask(
         payload: AskRequest,
-        tenant_id: str = Depends(get_tenant_id),
-        db: AsyncSession = Depends(get_db_session),
+        tenant_id: Annotated[str, Depends(get_tenant_id)],
+        db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> AskResponse:
         ctx = ExecutionContext.from_request(tenant_id=tenant_id)
         set_execution_context(ctx)
@@ -293,10 +284,8 @@ def build_workflow_router(get_tenant_id) -> APIRouter:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=LLM_CONFIGURATION_ERROR,
                 )
-            # Validate request
             _validate_ask_request(payload, tenant_id)
 
-            # Execute with timeout
             try:
                 service = _build_workflow_service(db)
                 result = await asyncio.wait_for(
@@ -313,14 +302,12 @@ def build_workflow_router(get_tenant_id) -> APIRouter:
                     detail="Question answering operation timed out",
                 )
             except Exception:
-                # Backward-compatible fallback while service migration stabilizes.
                 return await services_ai_flows.run_ask_flow(
                     tenant_id=tenant_id,
                     db=db,
                     payload=payload,
                 )
 
-            # Map result to response schema
             return AskResponse(
                 answer=result.get("answer"),
                 model=result.get("model", "unknown"),
@@ -341,11 +328,14 @@ def build_workflow_router(get_tenant_id) -> APIRouter:
         finally:
             clear_execution_context()
 
-    @router.post("/ai/ask/stream")
-    async def ask_stream(
+    return ask
+
+
+def _make_ask_stream_handler(get_tenant_id):
+    def ask_stream(
         payload: AskRequest,
-        tenant_id: str = Depends(get_tenant_id),
-        db: AsyncSession = Depends(get_db_session),
+        tenant_id: Annotated[str, Depends(get_tenant_id)],
+        db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> StreamingResponse:
         try:
             if not services_ai_flows.llm_client.is_configured():
@@ -353,7 +343,6 @@ def build_workflow_router(get_tenant_id) -> APIRouter:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=LLM_CONFIGURATION_ERROR,
                 )
-            # Validate request
             _validate_ask_request(payload, tenant_id)
 
             async def _stream():
@@ -385,7 +374,33 @@ def build_workflow_router(get_tenant_id) -> APIRouter:
             raise
         except Exception:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Streaming failed"
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Streaming failed",
             )
 
+    return ask_stream
+
+
+def build_workflow_router(get_tenant_id) -> APIRouter:
+    router = APIRouter(tags=["workflows"])
+    router.add_api_route(
+        "/ai/notary/summarize",
+        _make_notary_handler(get_tenant_id),
+        methods=["POST"],
+    )
+    router.add_api_route(
+        "/ai/classify",
+        _make_classify_handler(get_tenant_id),
+        methods=["POST"],
+    )
+    router.add_api_route(
+        "/ai/ask",
+        _make_ask_handler(get_tenant_id),
+        methods=["POST"],
+    )
+    router.add_api_route(
+        "/ai/ask/stream",
+        _make_ask_stream_handler(get_tenant_id),
+        methods=["POST"],
+    )
     return router

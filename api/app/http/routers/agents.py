@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 from typing import AsyncIterator
+from typing_extensions import Annotated
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -23,7 +22,7 @@ def _build_agent_service() -> AgentService:
     )
 
 
-async def run_agent(*, tenant_id: str, message: str, db: AsyncSession) -> dict[str, object]:
+async def run_agent(*, tenant_id: str, message: str) -> dict[str, object]:
     settings = core_config.get_settings()
     if not settings.llm_provider or not settings.llm_base_url:
         return {
@@ -58,8 +57,8 @@ async def run_agent(*, tenant_id: str, message: str, db: AsyncSession) -> dict[s
         clear_execution_context()
 
 
-async def run_agent_stream(*, tenant_id: str, message: str, db: AsyncSession) -> AsyncIterator[str]:
-    result = await run_agent(tenant_id=tenant_id, message=message, db=db)
+async def run_agent_stream(*, tenant_id: str, message: str) -> AsyncIterator[str]:
+    result = await run_agent(tenant_id=tenant_id, message=message)
     text = str(result.get("answer", ""))
     for token in text.split(" "):
         if token:
@@ -69,13 +68,14 @@ async def run_agent_stream(*, tenant_id: str, message: str, db: AsyncSession) ->
 def build_agent_router(get_tenant_id) -> APIRouter:
     router = APIRouter(tags=["agents"])
 
-    @router.post("/ai/agents/chat", response_model=AgentChatResponse)
+    @router.post("/ai/agents/chat")
     async def agent_chat(
         payload: AgentChatRequest,
-        tenant_id: str = Depends(get_tenant_id),
-        db: AsyncSession = Depends(get_db_session),
+        tenant_id: Annotated[str, Depends(get_tenant_id)],
+        db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> AgentChatResponse:
-        result = await run_agent(tenant_id=tenant_id, message=payload.message, db=db)
+        _ = db
+        result = await run_agent(tenant_id=tenant_id, message=payload.message)
         return AgentChatResponse(
             answer=str(result.get("answer", "")),
             tools_used=list(result.get("tools_used", [])),
@@ -85,14 +85,15 @@ def build_agent_router(get_tenant_id) -> APIRouter:
     @router.post("/ai/agents/chat/stream")
     async def agent_chat_stream(
         payload: AgentChatRequest,
-        tenant_id: str = Depends(get_tenant_id),
-        db: AsyncSession = Depends(get_db_session),
+        tenant_id: Annotated[str, Depends(get_tenant_id)],
+        db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> StreamingResponse:
+        _ = db
+
         async def _stream() -> AsyncIterator[str]:
             async for token in run_agent_stream(
                 tenant_id=tenant_id,
                 message=payload.message,
-                db=db,
             ):
                 yield token
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import orjson
 from typing import Annotated, Optional
 
@@ -30,8 +28,8 @@ def build_documents_router(get_tenant_id) -> APIRouter:
     @router.post("/documents", status_code=status.HTTP_201_CREATED)
     async def create_document_route(
         payload: DocumentCreate,
-        tenant_id: str = Depends(get_tenant_id),
-        db: AsyncSession = Depends(get_db_session),
+        tenant_id: Annotated[str, Depends(get_tenant_id)],
+        db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> DocumentRead:
         ctx = ExecutionContext.from_request(tenant_id=tenant_id)
         set_execution_context(ctx)
@@ -57,8 +55,8 @@ def build_documents_router(get_tenant_id) -> APIRouter:
     @router.post("/documents/upload", status_code=status.HTTP_201_CREATED)
     async def upload_document(
         file: Annotated[UploadFile, File(...)],
-        tenant_id: str = Depends(get_tenant_id),
-        db: AsyncSession = Depends(get_db_session),
+        tenant_id: Annotated[str, Depends(get_tenant_id)],
+        db: Annotated[AsyncSession, Depends(get_db_session)],
         document_id: Annotated[Optional[str], Form()] = None,
         title: Annotated[Optional[str], Form()] = None,
     ) -> DocumentRead:
@@ -97,8 +95,8 @@ def build_documents_router(get_tenant_id) -> APIRouter:
     @router.get("/documents/{document_id}")
     async def get_document_route(
         document_id: str,
-        tenant_id: str = Depends(get_tenant_id),
-        db: AsyncSession = Depends(get_db_session),
+        tenant_id: Annotated[str, Depends(get_tenant_id)],
+        db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> DocumentRead:
         ctx = ExecutionContext.from_request(tenant_id=tenant_id)
         set_execution_context(ctx)

@@ -28,57 +28,66 @@ _MAX_POWER_EXPONENT = 1000
 _MAX_INT_BITS = 4096  # Prevent extremely large integer allocations
 
 
+def _ensure_real_number(value: object) -> float | int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("Only numbers are allowed")
+    return value
+
+
+def _ensure_valid_result(result: object) -> float | int:
+    if isinstance(result, bool) or not isinstance(result, (int, float)):
+        raise ValueError("Result is not a real number")
+    if isinstance(result, int) and result.bit_length() > _MAX_INT_BITS:
+        raise ValueError("Result too large")
+    if isinstance(result, float) and not math.isfinite(result):
+        raise ValueError("Result is not finite")
+    return result
+
+
+def _check_pow_safety(left: float | int, right: float | int) -> None:
+    if abs(right) > _MAX_POWER_EXPONENT:
+        raise ValueError("Exponent too large")
+    if isinstance(left, int) and isinstance(right, int) and right >= 0 and abs(left) > 1:
+        estimated_bits = right * abs(left).bit_length()
+        if estimated_bits > _MAX_INT_BITS:
+            raise ValueError("Result too large")
+
+
 def _safe_eval(expr: str) -> float | int:
     """Evaluate a simple math expression using a restricted AST."""
     tree = ast.parse(expr, mode="eval")
+
+    def _eval_unary(node: ast.UnaryOp) -> float | int:
+        op = _UNARY_OPS.get(type(node.op))
+        if op is None:
+            raise ValueError(f"Unsupported unary operator: {type(node.op)}")
+        value = _eval_node(node.operand)
+        return _ensure_valid_result(op(value))
+
+    def _eval_binary(node: ast.BinOp) -> float | int:
+        left = _eval_node(node.left)
+        right = _eval_node(node.right)
+        op = _BIN_OPS.get(type(node.op))
+        if op is None:
+            raise ValueError(f"Unsupported operator: {type(node.op)}")
+
+        if isinstance(node.op, ast.Pow):
+            _check_pow_safety(left, right)
+
+        return _ensure_valid_result(op(left, right))
 
     def _eval_node(node: ast.AST) -> float | int:
         if isinstance(node, ast.Expression):
             return _eval_node(node.body)
 
         if isinstance(node, ast.Constant):
-            if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
-                raise ValueError("Only numbers are allowed")
-            return node.value
+            return _ensure_real_number(node.value)
 
         if isinstance(node, ast.UnaryOp):
-            op = _UNARY_OPS.get(type(node.op))
-            if op is None:
-                raise ValueError(f"Unsupported unary operator: {type(node.op)}")
-            value = _eval_node(node.operand)
-            result = op(value)
-            if isinstance(result, bool) or not isinstance(result, (int, float)):
-                raise ValueError("Result is not a real number")
-            return result
+            return _eval_unary(node)
 
         if isinstance(node, ast.BinOp):
-            left = _eval_node(node.left)
-            right = _eval_node(node.right)
-            op = _BIN_OPS.get(type(node.op))
-            if op is None:
-                raise ValueError(f"Unsupported operator: {type(node.op)}")
-
-            if isinstance(node.op, ast.Pow):
-                if abs(right) > _MAX_POWER_EXPONENT:
-                    raise ValueError("Exponent too large")
-                if (
-                    isinstance(left, int)
-                    and isinstance(right, int)
-                    and right >= 0
-                    and abs(left) > 1
-                ):
-                    estimated_bits = right * abs(left).bit_length()
-                    if estimated_bits > _MAX_INT_BITS:
-                        raise ValueError("Result too large")
-
-            result = op(left, right)
-            if isinstance(result, bool) or not isinstance(result, (int, float)):
-                raise ValueError("Result is not a real number")
-            if isinstance(result, int) and result.bit_length() > _MAX_INT_BITS:
-                raise ValueError("Result too large")
-            if isinstance(result, float) and not math.isfinite(result):
-                raise ValueError("Result is not finite")
-            return result
+            return _eval_binary(node)
 
         raise ValueError(f"Unsupported expression: {type(node)}")
 
