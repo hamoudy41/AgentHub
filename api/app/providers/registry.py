@@ -66,12 +66,12 @@ class ProviderRegistry:
 
         if provider_type == "ollama":
             provider = OllamaProvider(self._settings)
-        elif provider_type in ("openai", "openai-compatible", "azure"):
+        elif provider_type in ("openai", "openai-compatible", "openai_compatible", "azure"):
             provider = OpenAICompatibleProvider(self._settings)
         else:
             raise LLMNotConfiguredError(
                 f"Unknown LLM provider: {provider_type}. "
-                f"Supported: ollama, openai, openai-compatible, azure"
+                f"Supported: ollama, openai, openai-compatible, openai_compatible, azure"
             )
 
         self._llm_cache = provider

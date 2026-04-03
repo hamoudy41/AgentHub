@@ -34,12 +34,12 @@ class SearchProvider(ABC):
     """
 
     @abstractmethod
-    async def search(self, query: str, count: int = 5) -> list[SearchResult]:
+    async def search(self, query: str, limit: int = 5) -> list[SearchResult]:
         """Search and return top results.
 
         Args:
             query: Search query string
-            count: Number of results to return (default: 5)
+            limit: Number of results to return (default: 5)
 
         Returns:
             List of SearchResult objects ranked by relevance

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from app.core.context import ExecutionContext, get_execution_context
+from app.core.context import ExecutionContext, require_execution_context
 from app.core.logging import get_logger
 from app.persistence.repositories.document import DocumentRepository
 from app.providers import EmbeddingProvider, SearchProvider
+from app.rag.pipeline import rag_pipeline
 
 from .base_service import BaseService
 from .llm_service import LLMService
@@ -68,7 +69,7 @@ class RAGService(BaseService):
         Returns:
             List of document chunks with metadata
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         self.log_info(
             "rag.retrieve_started",
             query=query[:100],
@@ -82,6 +83,34 @@ class RAGService(BaseService):
         # 3. Return top-k chunks with scores
 
         try:
+            chunk_results = await rag_pipeline.retrieve(
+                tenant_id=str(ctx.tenant_id),
+                query=query,
+                top_k=top_k,
+                document_ids=document_ids,
+                db=self._document_repository.session,
+            )
+            if chunk_results:
+                all_docs = await self._document_repository.list(tenant_id=ctx.tenant_id)
+                title_by_id = {doc.id: doc.title for doc in all_docs}
+                results = [
+                    {
+                        "document_id": item["document_id"],
+                        "title": title_by_id.get(item["document_id"], item["document_id"]),
+                        "text": item["text"],
+                        "score": float(item.get("score", 0.0)),
+                        "chunk_index": item.get("chunk_index"),
+                    }
+                    for item in chunk_results
+                ]
+                self.log_info(
+                    "rag.retrieve_success",
+                    retrieved=len(results),
+                    tenant_id=ctx.tenant_id,
+                    source="chunks",
+                )
+                return results
+
             all_docs = await self._document_repository.list(tenant_id=ctx.tenant_id)
 
             # Filter by document_ids if provided
@@ -117,6 +146,7 @@ class RAGService(BaseService):
                 "rag.retrieve_success",
                 retrieved=len(results),
                 tenant_id=ctx.tenant_id,
+                source="documents_fallback",
             )
             return results
         except Exception as exc:
@@ -133,6 +163,7 @@ class RAGService(BaseService):
         question: str,
         context_documents: Optional[list[dict[str, Any]]] = None,
         *,
+        user_context: Optional[str] = None,
         system_prompt: Optional[str] = None,
         context: ExecutionContext | None = None,
     ) -> dict[str, Any]:
@@ -147,7 +178,7 @@ class RAGService(BaseService):
         Returns:
             Dict with answer, sources, model name, latency
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         self.log_info(
             "rag.answer_question_started",
             question=question[:100],
@@ -173,9 +204,13 @@ class RAGService(BaseService):
         )
         system = system_prompt or default_system
 
+        question_text = question
+        if user_context and user_context.strip():
+            question_text = f"{question}\n\nAdditional context:\n{user_context.strip()}"
+
         user_prompt = (
             "Based on the following context, please answer the question.\n\n"
-            f"Context:\n{context_str[:8000]}\n\nQuestion: {question}"
+            f"Context:\n{context_str[:8000]}\n\nQuestion: {question_text}"
         )
 
         try:
@@ -232,7 +267,7 @@ class RAGService(BaseService):
         Returns:
             List of search results with title, url, snippet
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         self.log_info(
             "rag.search_external_started",
             query=query[:100],
@@ -265,3 +300,54 @@ class RAGService(BaseService):
                 tenant_id=ctx.tenant_id,
             )
             raise
+
+    async def complete_text(
+        self,
+        prompt: str,
+        *,
+        system_prompt: Optional[str] = None,
+        context: ExecutionContext | None = None,
+    ):
+        """Expose completion via a stable public API for workflow services."""
+        ctx = context or require_execution_context()
+        return await self._llm_service.complete(prompt, system_prompt=system_prompt, context=ctx)
+
+    async def stream_answer(
+        self,
+        question: str,
+        *,
+        context_documents: Optional[list[dict[str, Any]]] = None,
+        user_context: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        context: ExecutionContext | None = None,
+    ):
+        """Stream an answer using retrieved context without exposing private members."""
+        ctx = context or require_execution_context()
+        documents = context_documents
+        if not documents:
+            documents = await self.retrieve_documents(question, context=ctx)
+
+        context_str = (
+            "\n\n".join(f"[{doc['document_id']}] {doc['text'][:500]}" for doc in documents)
+            if documents
+            else "(No relevant documents found.)"
+        )
+        question_text = question
+        if user_context and user_context.strip():
+            question_text = f"{question}\n\nAdditional context:\n{user_context.strip()}"
+
+        user_prompt = (
+            "Based on the following context, please answer the question.\n\n"
+            f"Context:\n{context_str[:8000]}\n\nQuestion: {question_text}"
+        )
+        effective_system = system_prompt or (
+            "You are a helpful assistant. Answer the question based only on "
+            "the provided context. If the context doesn't contain relevant information, say so."
+        )
+
+        async for token in self._llm_service.stream_complete(
+            user_prompt,
+            system_prompt=effective_system,
+            context=ctx,
+        ):
+            yield token

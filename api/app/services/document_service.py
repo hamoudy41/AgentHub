@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from app.core.context import ExecutionContext, get_execution_context
+from app.core.context import ExecutionContext, require_execution_context
 from app.core.errors import ConflictError, NotFoundError
 from app.core.logging import get_logger
 from app.persistence.models import Document
@@ -57,13 +57,14 @@ class DocumentService(BaseService):
         Raises:
             ConflictError: If document_id already exists for this tenant
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         self.log_info(
             "document.create_started",
             document_id=document_id,
             title=title[:50],
             text_length=len(text),
-            context=ctx,
+            tenant_id=ctx.tenant_id,
+            request_id=ctx.request_id,
         )
 
         try:
@@ -107,7 +108,7 @@ class DocumentService(BaseService):
         Raises:
             NotFoundError: If document not found for this tenant
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         doc = await self._repository.read(document_id, tenant_id=ctx.tenant_id)
         if not doc:
             self.log_warning(
@@ -135,7 +136,7 @@ class DocumentService(BaseService):
         Raises:
             NotFoundError: If document not found for this tenant
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         doc = await self._repository.read(document_id, tenant_id=ctx.tenant_id)
         if not doc:
             self.log_warning(
@@ -165,7 +166,7 @@ class DocumentService(BaseService):
         Returns:
             List of documents scoped to tenant
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         docs = await self._repository.list(tenant_id=ctx.tenant_id)
         self.log_info(
             "document.list",

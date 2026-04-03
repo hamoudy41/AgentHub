@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 
-from app.core.context import ExecutionContext, get_execution_context
+from app.core.context import ExecutionContext, require_execution_context
 from app.core.logging import get_logger
 from app.models import AiCallAudit
 from app.persistence.repositories.audit import AuditRepository
@@ -58,7 +58,7 @@ class AuditService(BaseService):
         Returns:
             Audit record ID
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         self.log_info(
             "audit.record_flow",
             flow=flow_name,
@@ -104,7 +104,7 @@ class AuditService(BaseService):
             context: Optional execution context (uses current if not provided)
         """
         await asyncio.sleep(0)
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         self.log_info(
             "audit.tool_call",
             agent_id=agent_id,
@@ -131,9 +131,13 @@ class AuditService(BaseService):
         Returns:
             Number of records deleted
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         if retention_days <= 0:
-            self.log_info("audit.purge_disabled", context=ctx)
+            self.log_info(
+                "audit.purge_disabled",
+                tenant_id=ctx.tenant_id,
+                request_id=ctx.request_id,
+            )
             return 0
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
@@ -163,7 +167,7 @@ class AuditService(BaseService):
         Returns:
             Stats dict with success_count, failure_count, success_rate
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         since = datetime.now(timezone.utc) - timedelta(days=days)
 
         # Get records from repository

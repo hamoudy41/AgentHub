@@ -18,6 +18,15 @@ from app.services.llm_service import LLMService
 from app.services.rag_service import RAGService
 
 
+def _ensure_llm_configured() -> None:
+    settings = get_settings()
+    if not settings.llm_provider or not settings.llm_base_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="LLM not configured. Set LLM_PROVIDER and LLM_BASE_URL.",
+        )
+
+
 def _build_rag_service(db: AsyncSession) -> tuple[RAGService, LLMService]:
     settings = get_settings()
     registry = ProviderRegistry(settings)
@@ -116,6 +125,7 @@ def build_rag_router(get_tenant_id) -> APIRouter:
         tenant_id: Annotated[str, Depends(get_tenant_id)],
         db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> RAGQueryResponse:
+        _ensure_llm_configured()
         result = await run_rag_query_flow(tenant_id=tenant_id, db=db, payload=payload)
         return RAGQueryResponse(**result)
 
@@ -125,6 +135,8 @@ def build_rag_router(get_tenant_id) -> APIRouter:
         tenant_id: Annotated[str, Depends(get_tenant_id)],
         db: Annotated[AsyncSession, Depends(get_db_session)],
     ) -> StreamingResponse:
+        _ensure_llm_configured()
+
         async def _stream() -> AsyncGenerator[str, None]:
             async for token in run_rag_query_flow_stream(
                 tenant_id=tenant_id,

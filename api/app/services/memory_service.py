@@ -6,7 +6,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from app.core.context import ExecutionContext, get_execution_context
+from app.core.context import ExecutionContext, require_execution_context
 from app.core.logging import get_logger
 from app.domain.memory import Memory, MemoryType
 
@@ -60,7 +60,7 @@ class MemoryService(BaseService):
             context: Optional execution context (uses current if not provided)
         """
         await asyncio.sleep(0)
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         ttl = ttl_seconds if ttl_seconds is not None else self._ttl_seconds
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl)
 
@@ -103,7 +103,7 @@ class MemoryService(BaseService):
             Stored value or None if not found/expired
         """
         await asyncio.sleep(0)
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
 
         if ctx.tenant_id not in self._storage or agent_id not in self._storage[ctx.tenant_id]:
             return None
@@ -135,7 +135,7 @@ class MemoryService(BaseService):
             context: Optional execution context (uses current if not provided)
         """
         await asyncio.sleep(0)
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
 
         if ctx.tenant_id in self._storage and agent_id in self._storage[ctx.tenant_id]:
             memory = self._storage[ctx.tenant_id][agent_id]
@@ -165,7 +165,7 @@ class MemoryService(BaseService):
             Number of entries removed
         """
         await asyncio.sleep(0)
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
 
         if ctx.tenant_id not in self._storage or agent_id not in self._storage[ctx.tenant_id]:
             return 0
@@ -198,7 +198,7 @@ class MemoryService(BaseService):
             Dict with memory type -> entry count
         """
         await asyncio.sleep(0)
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
 
         summary = {
             "agent_id": agent_id,

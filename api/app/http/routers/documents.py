@@ -100,28 +100,28 @@ def build_documents_router(get_tenant_id) -> APIRouter:
     ) -> DocumentRead:
         ctx = ExecutionContext.from_request(tenant_id=tenant_id)
         set_execution_context(ctx)
-        service = _build_document_service(db)
-        cache_entry = await get_cached(cache_key(tenant_id, "document", document_id))
-        if cache_entry:
-            try:
-                return DocumentRead.model_validate(orjson.loads(cache_entry))
-            except (TypeError, ValueError):
-                pass
-
         try:
+            service = _build_document_service(db)
+            cache_entry = await get_cached(cache_key(tenant_id, "document", document_id))
+            if cache_entry:
+                try:
+                    return DocumentRead.model_validate(orjson.loads(cache_entry))
+                except (TypeError, ValueError):
+                    pass
+
             response = await service.read(document_id, context=ctx)
+
+            await set_cached(
+                cache_key(tenant_id, "document", document_id),
+                orjson.dumps(response.model_dump(mode="json")).decode(),
+                ttl_seconds=300,
+            )
+            return response
         except NotFoundError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
             ) from exc
         finally:
             clear_execution_context()
-
-        await set_cached(
-            cache_key(tenant_id, "document", document_id),
-            orjson.dumps(response.model_dump(mode="json")).decode(),
-            ttl_seconds=300,
-        )
-        return response
 
     return router

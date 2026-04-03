@@ -56,7 +56,7 @@ def _validate_ask_request(payload: AskRequest, tenant_id: str) -> None:
         sanitize_user_input(
             payload.context,
             max_length=500_000,
-            check_injection=False,  # Context is not user input
+            check_injection=True,
             tenant_id=tenant_id,
         )
     except ValueError as e:
@@ -74,7 +74,7 @@ def _validate_classify_request(payload: ClassifyRequest, tenant_id: str) -> None
         sanitize_user_input(
             payload.text,
             max_length=500_000,
-            check_injection=False,
+            check_injection=True,
             tenant_id=tenant_id,
         )
     except ValueError as e:
@@ -92,7 +92,7 @@ def _validate_notary_request(payload: NotarySummarizeRequest, tenant_id: str) ->
         sanitize_user_input(
             payload.text,
             max_length=500_000,
-            check_injection=False,
+            check_injection=True,
             tenant_id=tenant_id,
         )
     except ValueError as e:
@@ -131,6 +131,7 @@ async def run_ask_flow_stream(
         async for chunk in service.ask_flow_stream(
             payload.question,
             document_ids=None,
+            user_context=payload.context,
             context=ctx,
         ):
             yield chunk
@@ -194,7 +195,7 @@ def _make_notary_handler(get_tenant_id):
         except ValidationError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except AppError as e:
-            raise HTTPException(status_code=e.status_code, detail=e.error_code)
+            raise HTTPException(status_code=e.status_code, detail=e.to_dict())
         except HTTPException:
             raise
         except Exception:
@@ -256,7 +257,7 @@ def _make_classify_handler(get_tenant_id):
         except ValidationError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except AppError as e:
-            raise HTTPException(status_code=e.status_code, detail=e.error_code)
+            raise HTTPException(status_code=e.status_code, detail=e.to_dict())
         except HTTPException:
             raise
         except Exception:
@@ -292,6 +293,7 @@ def _make_ask_handler(get_tenant_id):
                     service.ask_flow(
                         payload.question,
                         document_ids=None,
+                        user_context=payload.context,
                         context=ctx,
                     ),
                     timeout=WORKFLOW_TIMEOUT,
@@ -317,7 +319,7 @@ def _make_ask_handler(get_tenant_id):
         except ValidationError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except AppError as e:
-            raise HTTPException(status_code=e.status_code, detail=e.error_code)
+            raise HTTPException(status_code=e.status_code, detail=e.to_dict())
         except HTTPException:
             raise
         except Exception:
@@ -369,7 +371,7 @@ def _make_ask_stream_handler(get_tenant_id):
         except ValidationError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         except AppError as e:
-            raise HTTPException(status_code=e.status_code, detail=e.error_code)
+            raise HTTPException(status_code=e.status_code, detail=e.to_dict())
         except HTTPException:
             raise
         except Exception:

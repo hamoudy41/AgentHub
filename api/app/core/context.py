@@ -82,6 +82,18 @@ def get_execution_context() -> Optional[ExecutionContext]:
     return _execution_context.get()
 
 
+def require_execution_context() -> ExecutionContext:
+    """Get current execution context or raise if missing.
+
+    Use this in code paths that require tenant/request metadata and cannot
+    continue safely without an active request context.
+    """
+    context = _execution_context.get()
+    if context is None:
+        raise RuntimeError("Execution context is not set")
+    return context
+
+
 def set_execution_context(context: ExecutionContext) -> None:
     """Set the current execution context."""
     context.set_context()

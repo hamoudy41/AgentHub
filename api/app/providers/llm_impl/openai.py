@@ -209,6 +209,7 @@ class OpenAICompatibleProvider(LLMProvider):
             raise LLMProviderError("OpenAI-compatible returned empty content")
 
         latency_ms = (time.perf_counter() - started) * 1000
+        latency_ms_int = int(round(latency_ms))
         LLM_LATENCY.labels(provider="openai", flow="generic").observe(latency_ms / 1000.0)
         logger.info(
             "llm.openai_success",
@@ -219,7 +220,7 @@ class OpenAICompatibleProvider(LLMProvider):
         return LLMResult(
             raw_text=text.strip(),
             model=data.get("model", self._settings.llm_model),
-            latency_ms=round(latency_ms, 2),
+            latency_ms=latency_ms_int,
         )
 
     async def stream_complete(

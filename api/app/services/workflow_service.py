@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator, Optional
 
-from app.core.context import ExecutionContext, get_execution_context
+from app.core.context import ExecutionContext, require_execution_context
 from app.core.errors import ValidationError
 from app.core.logging import get_logger
 
@@ -46,6 +46,7 @@ class WorkflowService(BaseService):
         question: str,
         document_ids: Optional[list[str]] = None,
         *,
+        user_context: Optional[str] = None,
         context: ExecutionContext | None = None,
     ) -> dict[str, Any]:
         """Execute question-answering workflow.
@@ -58,7 +59,7 @@ class WorkflowService(BaseService):
         Returns:
             Dict with answer, sources, metadata
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         self.log_info(
             "workflow.ask_started",
             question=question[:100],
@@ -66,9 +67,13 @@ class WorkflowService(BaseService):
         )
 
         try:
+            retrieval_query = question
+            if user_context and user_context.strip():
+                retrieval_query = f"{question}\n\n{user_context.strip()}"
+
             # Retrieve documents
             documents = await self._rag_service.retrieve_documents(
-                question,
+                retrieval_query,
                 top_k=5,
                 document_ids=document_ids,
                 context=ctx,
@@ -78,13 +83,18 @@ class WorkflowService(BaseService):
             response = await self._rag_service.answer_question(
                 question,
                 context_documents=documents,
+                user_context=user_context,
                 context=ctx,
             )
 
             # Record audit
             await self._audit_service.record_flow_execution(
                 "ask",
-                request={"question": question, "document_ids": document_ids},
+                request={
+                    "question": question,
+                    "document_ids": document_ids,
+                    "context": user_context,
+                },
                 response=response,
                 success=True,
                 context=ctx,
@@ -100,7 +110,11 @@ class WorkflowService(BaseService):
             # Record failure
             await self._audit_service.record_flow_execution(
                 "ask",
-                request={"question": question, "document_ids": document_ids},
+                request={
+                    "question": question,
+                    "document_ids": document_ids,
+                    "context": user_context,
+                },
                 response={"error": str(exc)},
                 success=False,
                 context=ctx,
@@ -118,6 +132,7 @@ class WorkflowService(BaseService):
         question: str,
         document_ids: Optional[list[str]] = None,
         *,
+        user_context: Optional[str] = None,
         context: ExecutionContext | None = None,
     ) -> AsyncIterator[str]:
         """Execute question-answering workflow with streaming response.
@@ -130,7 +145,7 @@ class WorkflowService(BaseService):
         Yields:
             Answer tokens as they are generated
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         self.log_info(
             "workflow.ask_stream_started",
             question=question[:100],
@@ -138,35 +153,23 @@ class WorkflowService(BaseService):
         )
 
         try:
+            retrieval_query = question
+            if user_context and user_context.strip():
+                retrieval_query = f"{question}\n\n{user_context.strip()}"
+
             # Retrieve documents
             documents = await self._rag_service.retrieve_documents(
-                question,
+                retrieval_query,
                 top_k=5,
                 document_ids=document_ids,
                 context=ctx,
             )
 
-            # Build context string (same as non-streaming)
-            context_str = (
-                "\n\n".join(f"[{doc['document_id']}] {doc['text'][:500]}" for doc in documents)
-                if documents
-                else "(No relevant documents found.)"
-            )
-
-            user_prompt = (
-                "Based on the following context, please answer the question.\n\n"
-                f"Context:\n{context_str[:8000]}\n\nQuestion: {question}"
-            )
-
-            system_prompt = (
-                "You are a helpful assistant. Answer the question based only on "
-                "the provided context. If the context doesn't contain relevant information, say so."
-            )
-
-            # Stream response
-            async for token in self._rag_service._llm_service.stream_complete(
-                user_prompt,
-                system_prompt=system_prompt,
+            # Stream response through the public RAG service API.
+            async for token in self._rag_service.stream_answer(
+                question,
+                context_documents=documents,
+                user_context=user_context,
                 context=ctx,
             ):
                 yield token
@@ -202,7 +205,7 @@ class WorkflowService(BaseService):
         Returns:
             Dict with predicted_category, confidence_score, reasoning
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         self.log_info(
             "workflow.classify_started",
             text_length=len(text),
@@ -221,7 +224,7 @@ class WorkflowService(BaseService):
                 f"Respond with ONLY the chosen category name."
             )
 
-            result = await self._rag_service._llm_service.complete(
+            result = await self._rag_service.complete_text(
                 prompt,
                 system_prompt="You are a text classifier. Always respond with only the category name.",
                 context=ctx,
@@ -286,7 +289,7 @@ class WorkflowService(BaseService):
         Returns:
             Dict with summary, key_points, model, latency
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         self.log_info(
             "workflow.summarize_started",
             text_length=len(text),
@@ -301,7 +304,7 @@ class WorkflowService(BaseService):
                 f"Text:\n{text[:3000]}"
             )
 
-            result = await self._rag_service._llm_service.complete(
+            result = await self._rag_service.complete_text(
                 prompt,
                 system_prompt="You are a professional summarizer. Provide concise, accurate summaries.",
                 context=ctx,

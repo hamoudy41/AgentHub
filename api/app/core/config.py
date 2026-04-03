@@ -38,7 +38,9 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 120
 
     # LLM Configuration
-    llm_provider: Literal["ollama", "openai", "openai-compatible", "azure", ""] = "ollama"
+    llm_provider: Literal[
+        "ollama", "openai", "openai-compatible", "openai_compatible", "azure", ""
+    ] = "ollama"
     llm_base_url: Optional[AnyHttpUrl] = None
     llm_api_key: Optional[str] = None
     llm_model: str = "llama3.2"

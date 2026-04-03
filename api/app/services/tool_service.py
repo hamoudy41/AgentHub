@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from app.core.context import ExecutionContext, get_execution_context
+from app.core.context import ExecutionContext, require_execution_context
 from app.core.errors import NotFoundError, ValidationError
 from app.core.logging import get_logger
 from app.domain.tool import Tool, ToolDefinition, ToolType
@@ -36,7 +36,7 @@ class ToolService(BaseService):
         name: str,
         description: str,
         input_schema: dict[str, Any],
-        execute_fn: Callable[[dict[str, Any]], Any],
+        execute_fn: Callable[..., Any],
         *,
         tool_type: ToolType = ToolType.FUNCTION,
     ) -> None:
@@ -47,7 +47,7 @@ class ToolService(BaseService):
             name: Human-readable tool name
             description: Tool description for LLM context
             input_schema: JSON schema for input validation
-            execute_fn: Async function to execute
+            execute_fn: Function/coroutine executed as keyword arguments (**inputs)
             tool_type: Type of tool (FUNCTION, API, CALCULATOR, etc.)
 
         Raises:
@@ -135,7 +135,7 @@ class ToolService(BaseService):
             NotFoundError: If tool not found
             Exception: If tool execution raises
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         tool = self.get_tool(tool_id)
 
         self.log_info(

@@ -133,6 +133,7 @@ class OllamaProvider(LLMProvider):
             raise LLMProviderError("Ollama returned empty response")
 
         latency_ms = (time.perf_counter() - started) * 1000
+        latency_ms_int = int(round(latency_ms))
         LLM_LATENCY.labels(provider="ollama", flow="generic").observe(latency_ms / 1000.0)
         logger.info(
             "llm.ollama_success",
@@ -143,7 +144,7 @@ class OllamaProvider(LLMProvider):
         return LLMResult(
             raw_text=text.strip(),
             model=data.get("model", self._settings.llm_model),
-            latency_ms=round(latency_ms, 2),
+            latency_ms=latency_ms_int,
         )
 
     async def stream_complete(

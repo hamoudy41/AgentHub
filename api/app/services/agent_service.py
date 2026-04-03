@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from app.core.context import ExecutionContext, get_execution_context
+from app.core.context import ExecutionContext, require_execution_context
 from app.core.errors import NotFoundError
 from app.core.logging import get_logger
 from app.domain.agent import Agent, AgentConfig, AgentState
 from app.domain.memory import Memory
+from app.persistence.repositories.document import DocumentRepository
 
 from .base_service import BaseService
 from .memory_service import MemoryService
@@ -33,6 +34,7 @@ class AgentService(BaseService):
         self,
         tool_service: ToolService,
         memory_service: MemoryService,
+        document_repository: DocumentRepository | None = None,
     ) -> None:
         """Initialize agent service.
 
@@ -43,6 +45,7 @@ class AgentService(BaseService):
         super().__init__("agent")
         self._tool_service = tool_service
         self._memory_service = memory_service
+        self._document_repository = document_repository
         # Agent registry: agent_id -> Agent
         self._agents: dict[str, Agent] = {}
 
@@ -71,7 +74,7 @@ class AgentService(BaseService):
         Returns:
             Created Agent instance
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         self.log_info(
             "agent.create_started",
             agent_id=agent_id,
@@ -122,7 +125,7 @@ class AgentService(BaseService):
         Raises:
             ValueError: If agent not found
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         if agent_id not in self._agents:
             self.log_warning(
                 "agent.not_found",
@@ -150,7 +153,7 @@ class AgentService(BaseService):
             NotFoundError: If agent or tool not found
         """
         await asyncio.sleep(0)
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         agent = self.get_agent(agent_id, context=ctx)
         tool = self._tool_service.get_tool(tool_id)
 
@@ -180,7 +183,7 @@ class AgentService(BaseService):
             NotFoundError: If agent not found
         """
         await asyncio.sleep(0)
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         agent = self.get_agent(agent_id, context=ctx)
         tool = self._tool_service.get_tool(tool_id)
         agent.remove_tool(tool.definition.name)
@@ -206,7 +209,7 @@ class AgentService(BaseService):
         Returns:
             List of Tool instances
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         agent = self.get_agent(agent_id, context=ctx)
         return [agent_tool.tool for agent_tool in agent.tools.values()]
 
@@ -228,7 +231,7 @@ class AgentService(BaseService):
             Execution result with answer, steps, metadata
         """
         await asyncio.sleep(0)
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         agent = self.get_agent(agent_id, context=ctx)
 
         self.log_info(
@@ -242,15 +245,35 @@ class AgentService(BaseService):
             # Update agent state
             agent.state = AgentState.RUNNING
 
-            # In full implementation, would call actual agent runtime here.
-            # For now, return mock result structure.
+            async def _get_document(doc_id: str, tenant_id: str) -> dict[str, Any] | None:
+                if self._document_repository is None:
+                    return None
+                doc = await self._document_repository.read(doc_id, tenant_id=tenant_id)
+                if not doc:
+                    return None
+                return {
+                    "id": doc.id,
+                    "title": doc.title,
+                    "text": doc.text,
+                    "created_at": doc.created_at.isoformat() if doc.created_at else None,
+                }
+
+            from app.agents.react_agent import run_agent as run_react_agent
+
+            execution = await run_react_agent(
+                tenant_id=str(ctx.tenant_id),
+                message=task,
+                get_document_fn=_get_document,
+            )
+
             result = {
                 "agent_id": agent_id,
                 "task": task,
                 "status": "completed",
-                "result": f"Agent {agent.config.name} processed: {task[:100]}",
+                "result": execution.get("answer", ""),
                 "steps": 1,
-                "tools_used": list(agent.tools.keys()),
+                "tools_used": execution.get("tools_used", []),
+                "error": execution.get("error"),
                 "metadata": {
                     "model": agent.config.model,
                     "temperature": agent.config.temperature,
@@ -290,7 +313,7 @@ class AgentService(BaseService):
             agent_id: Agent identifier
             context: Optional execution context (uses current if not provided)
         """
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         if agent_id not in self._agents:
             return
 
@@ -315,7 +338,7 @@ class AgentService(BaseService):
             List of agent summaries
         """
         await asyncio.sleep(0)
-        ctx = context or get_execution_context()
+        ctx = context or require_execution_context()
         agents = [
             {
                 "id": agent.id,
