@@ -288,7 +288,7 @@ export async function* agentChatStream(
     reader = r.body.getReader()
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
-    throw new Error(`Stream error: ${msg}`)
+    throw new Error(`Stream error: ${msg}`, { cause: err })
   }
 
   const decoder = new TextDecoder()
@@ -301,7 +301,7 @@ export async function* agentChatStream(
         readResult = await reader.read()
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error'
-        throw new Error(`Stream error: ${msg}`)
+        throw new Error(`Stream error: ${msg}`, { cause: err })
       }
 
       const { done, value } = readResult
