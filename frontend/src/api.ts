@@ -270,67 +270,79 @@ export async function agentChat(
   )
 }
 
+function getStreamReader(response: Response): ReadableStreamDefaultReader<Uint8Array> {
+  if (!response.body) {
+    throw new TypeError('Stream error: missing response body')
+  }
+  if (typeof response.body.getReader !== 'function') {
+    throw new TypeError('Stream error: invalid response body')
+  }
+  try {
+    return response.body.getReader()
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    throw new Error(`Stream error: ${msg}`, { cause: err })
+  }
+}
+
+async function readStreamChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  try {
+    return await reader.read()
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    throw new Error(`Stream error: ${msg}`, { cause: err })
+  }
+}
+
+function parseSsePayloads(
+  buffer: string
+): { nextBuffer: string; payloads: Array<{ token?: string; done?: boolean; error?: string }> } {
+  const lines = buffer.split('\n')
+  const nextBuffer = lines.pop() ?? ''
+  const payloads: Array<{ token?: string; done?: boolean; error?: string }> = []
+
+  for (const line of lines) {
+    if (!line.startsWith('data: ')) continue
+
+    const data = line.slice(6)
+    if (data === '[DONE]' || !data || data.trim() === '') continue
+
+    try {
+      payloads.push(JSON.parse(data) as { token?: string; done?: boolean; error?: string })
+    } catch {
+      // Ignore malformed chunks and continue streaming.
+    }
+  }
+
+  return { nextBuffer, payloads }
+}
+
 export async function* agentChatStream(
   message: string,
   apiKey?: string,
   tenantId?: string
 ): AsyncGenerator<{ token?: string; done?: boolean; error?: string }> {
   const r = await openStream('/ai/agents/chat/stream', { message }, { apiKey, tenantId })
-
-  if (!r.body) {
-    throw new Error('Stream error: missing response body')
-  }
-  if (typeof r.body.getReader !== 'function') {
-    throw new Error('Stream error: invalid response body')
-  }
-  let reader: ReadableStreamDefaultReader<Uint8Array>
-  try {
-    reader = r.body.getReader()
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Unknown error'
-    throw new Error(`Stream error: ${msg}`, { cause: err })
-  }
+  const reader = getStreamReader(r)
 
   const decoder = new TextDecoder()
   let buffer = ''
 
   try {
     while (true) {
-      let readResult
-      try {
-        readResult = await reader.read()
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Unknown error'
-        throw new Error(`Stream error: ${msg}`, { cause: err })
-      }
-
+      const readResult = await readStreamChunk(reader)
       const { done, value } = readResult
       if (done) break
 
-      if (!value) {
-        continue
-      }
+      if (!value) continue
 
       buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6)
-          if (data === '[DONE]') continue
-
-          if (!data || data.trim() === '') {
-            continue
-          }
-
-          try {
-            const parsed = JSON.parse(data) as { token?: string; done?: boolean; error?: string }
-            yield parsed
-          } catch {
-            continue
-          }
-        }
+      const { nextBuffer, payloads } = parseSsePayloads(buffer)
+      buffer = nextBuffer
+      for (const payload of payloads) {
+        yield payload
       }
     }
   } finally {
