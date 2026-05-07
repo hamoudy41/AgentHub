@@ -1,4 +1,4 @@
-FROM node:25-alpine AS builder
+FROM node:26-alpine AS builder
 WORKDIR /app
 # Node 25-alpine may not provide corepack; install pnpm directly as fallback.
 RUN corepack enable || npm install -g pnpm@10
